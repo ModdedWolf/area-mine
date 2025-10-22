@@ -8,10 +8,11 @@
     "per_level_above_first": 9
   },
   "max_cost": {
-    "base": 65,
+    "base": 61,
     "per_level_above_first": 9
   },
   "anvil_cost": 4,
   "slots": ["mainhand"],
+  "primary_items": "#area_enchant:area_mine_applicable",
   "effects": {}
 }
