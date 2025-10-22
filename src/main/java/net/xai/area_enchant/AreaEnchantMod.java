@@ -1,7 +1,9 @@
 package net.xai.area_enchant;
 
 import com.google.gson.Gson;
+import com.mojang.brigadier.CommandDispatcher;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.object.builder.v1.trade.TradeOfferHelper;
 import net.minecraft.enchantment.EnchantmentLevelEntry;
 import net.minecraft.entity.Entity;
@@ -13,6 +15,8 @@ import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
@@ -34,10 +38,12 @@ import java.util.Optional;
 public class AreaEnchantMod implements ModInitializer {
     public static final RegistryKey<net.minecraft.enchantment.Enchantment> AREA_MINE = RegistryKey.of(RegistryKeys.ENCHANTMENT, Identifier.of("area_enchant", "area_mine"));
     public static Config config;
+    private static final Gson gson = new Gson();
 
     @Override
     public void onInitialize() {
         loadConfig();
+        registerCommands();
         TradeOfferHelper.registerVillagerOffers(VillagerProfession.LIBRARIAN, 5, factories -> {
             factories.add((entity, random) -> {
                 ServerWorld world = (ServerWorld) ((EntityAccessor) entity).getWorld();
@@ -66,9 +72,23 @@ public class AreaEnchantMod implements ModInitializer {
         });
     }
 
-    private void loadConfig() {
+    private void registerCommands() {
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            dispatcher.register(CommandManager.literal("areamine")
+                .requires(source -> source.hasPermissionLevel(2)) // Requires OP level 2
+                .then(CommandManager.literal("reload")
+                    .executes(AreaMineCommand::reload)
+                )
+            );
+        });
+    }
+
+    public static void reloadConfig() {
+        loadConfig();
+    }
+
+    private static void loadConfig() {
         Path configPath = Paths.get("config/area_enchant.json");
-        Gson gson = new Gson();
 
         if (Files.exists(configPath)) {
             try {
@@ -89,7 +109,7 @@ public class AreaEnchantMod implements ModInitializer {
         }
     }
 
-    private Config getDefaultConfig() {
+    private static Config getDefaultConfig() {
         Config defaultConfig = new Config();
         defaultConfig.levels.put(1, new Size(1, 2, 1));
         defaultConfig.levels.put(2, new Size(2, 2, 2));
