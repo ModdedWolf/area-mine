@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.xai.area_enchant.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "server": [
+    "ServerPlayerInteractionManagerMixin",
+    "EntityAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "refmap": "area_enchant-refmap.json"
+}

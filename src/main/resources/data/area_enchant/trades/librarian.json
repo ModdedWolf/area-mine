@@ -1,0 +1,16 @@
+{
+  "trades": {
+    "5": [
+      {
+        "type": "minecraft:enchant_book",
+        "experience": 30,
+        "max_uses": 12,
+        "multiplier": 0.2,
+        "price": 5,
+        "enchantment": "area_enchant:area_mine",
+        "min_level": 1,
+        "max_level": 3
+      }
+    ]
+  }
+}

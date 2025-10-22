@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "area_enchant",
+  "version": "${version}",
+  "name": "Area Enchant",
+  "description": "Adds a custom enchantment for area mining with configurable settings.",
+  "authors": ["ModdedWolf"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["net.xai.area_enchant.AreaEnchantMod"]
+  },
+  "mixins": ["area_enchant.mixins.json"],
+    "depends": {
+    "fabricloader": ">=0.17.3",
+    "minecraft": "~1.21.10",
+    "java": ">=21"
+  }
+}
