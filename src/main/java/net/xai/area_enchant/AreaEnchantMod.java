@@ -1,12 +1,9 @@
 package net.xai.area_enchant;
 
 import com.google.gson.Gson;
-import com.mojang.brigadier.CommandDispatcher;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.object.builder.v1.trade.TradeOfferHelper;
-import net.minecraft.enchantment.EnchantmentLevelEntry;
-import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.component.DataComponentTypes;
@@ -16,14 +13,11 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.math.random.Random;
 import net.minecraft.village.TradeOffer;
 import net.minecraft.village.TradedItem;
 import net.minecraft.village.VillagerProfession;
-import net.minecraft.world.World;
 import net.xai.area_enchant.mixin.EntityAccessor;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -79,6 +73,17 @@ public class AreaEnchantMod implements ModInitializer {
                 .then(CommandManager.literal("reload")
                     .executes(AreaMineCommand::reload)
                 )
+                .then(CommandManager.literal("toggle")
+                    .then(CommandManager.argument("player", net.minecraft.command.argument.EntityArgumentType.player())
+                        .executes(AreaMineCommand::toggle)
+                    )
+                )
+                .then(CommandManager.literal("stats")
+                    .executes(AreaMineCommand::statsAll)
+                    .then(CommandManager.argument("player", net.minecraft.command.argument.EntityArgumentType.player())
+                        .executes(AreaMineCommand::stats)
+                    )
+                )
             );
         });
     }
@@ -117,12 +122,49 @@ public class AreaEnchantMod implements ModInitializer {
         defaultConfig.allowedTools.add("minecraft:iron_pickaxe");
         defaultConfig.allowedTools.add("minecraft:diamond_pickaxe");
         defaultConfig.allowedTools.add("minecraft:netherite_pickaxe");
+        
+        // Feature defaults (keep current behavior)
+        defaultConfig.autoPickup = false;
+        defaultConfig.veinMiningMode = false;
+        defaultConfig.durabilityScaling = false;
+        defaultConfig.xpCostPerBlock = 0;
+        defaultConfig.cooldownTicks = 0;
+        defaultConfig.miningPattern = "cube";
+        defaultConfig.particleEffects = false;
+        defaultConfig.soundEffects = false;
+        defaultConfig.permissionsEnabled = false;
+        defaultConfig.respectFortuneAndSilkTouch = true; // ENABLED by default
+        
+        // Tool type support
+        defaultConfig.enableAxeSupport = false;
+        defaultConfig.enableShovelSupport = false;
+        defaultConfig.enableHoeSupport = false;
+        
         return defaultConfig;
     }
 
     public static class Config {
         public Map<Integer, Size> levels = new HashMap<>();
         public List<String> allowedTools = new ArrayList<>();
+        public List<String> blockBlacklist = new ArrayList<>();
+        public List<String> blockWhitelist = new ArrayList<>();
+        
+        // Features
+        public boolean autoPickup = false;
+        public boolean veinMiningMode = false;
+        public boolean durabilityScaling = false;
+        public int xpCostPerBlock = 0;
+        public int cooldownTicks = 0;
+        public String miningPattern = "cube";
+        public boolean particleEffects = false;
+        public boolean soundEffects = false;
+        public boolean permissionsEnabled = false;
+        public boolean respectFortuneAndSilkTouch = true;
+        
+        // Tool types
+        public boolean enableAxeSupport = false;
+        public boolean enableShovelSupport = false;
+        public boolean enableHoeSupport = false;
     }
 
     public static class Size {

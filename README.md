@@ -15,6 +15,7 @@ The **Area Mine** enchantment can be applied to pickaxes and automatically mines
 
 ## ✨ Features
 
+### Core Features
 - **Three Enchantment Levels** - Progressively larger mining areas
   - **Level I**: Mines a 1×2×1 area (horizontal × vertical × depth)
   - **Level II**: Mines a 2×2×2 area
@@ -26,11 +27,28 @@ The **Area Mine** enchantment can be applied to pickaxes and automatically mines
   - Cost: 5 Emeralds + 1 Book
   - Random level between I-III
 
-- **Configurable** - Customize mining area sizes and allowed tools via config file
-
-- **OP Commands** - `/areamine reload` command to reload config without restarting
+- **Fortune & Silk Touch Support** ✅ - Respects Fortune and Silk Touch enchantments on area-mined blocks (enabled by default)
 
 - **Server-Side Mod** - Only needs to be installed on the server, no client installation required
+
+### Optional Features (Configurable)
+All features below are **disabled by default** and can be enabled in the config:
+
+- **Auto-Pickup** - Automatically collect mined blocks to inventory
+- **Vein Mining Mode** - Only mine blocks of the same type (perfect for ores!)
+- **Durability Scaling** - Tool durability scales with blocks mined
+- **XP Cost System** - Consume XP when mining multiple blocks
+- **Cooldown System** - Add cooldown between area mine activations
+- **Block Blacklist/Whitelist** - Control which blocks can be area-mined
+- **Mining Patterns** - Different mining shapes (currently: cube)
+- **Particle Effects** - Visual feedback for blocks to be mined
+- **Sound Effects** - Audio feedback for area mining
+- **Tool Type Support** - Extend to axes, shovels, and hoes
+
+### Admin Commands ✅
+- `/areamine reload` - Reload configuration
+- `/areamine toggle <player>` - Enable/disable for specific players
+- `/areamine stats [player]` - View mining statistics
 
 ## 🎮 How to Obtain
 
@@ -57,34 +75,59 @@ Combine enchanted books with your pickaxe using an anvil.
 
 ## ⚙️ Configuration
 
-The mod generates a config file at `config/area_enchant.json` where you can customize:
+The mod generates a config file at `config/area_enchant.json` where you can customize everything:
 
 ```json
 {
   "levels": {
-    "1": {
-      "horizontal": 1,
-      "vertical": 2,
-      "depth": 1
-    },
-    "2": {
-      "horizontal": 2,
-      "vertical": 2,
-      "depth": 2
-    },
-    "3": {
-      "horizontal": 3,
-      "vertical": 3,
-      "depth": 3
-    }
+    "1": {"horizontal": 1, "vertical": 2, "depth": 1},
+    "2": {"horizontal": 2, "vertical": 2, "depth": 2},
+    "3": {"horizontal": 3, "vertical": 3, "depth": 3}
   },
   "allowedTools": [
     "minecraft:iron_pickaxe",
     "minecraft:diamond_pickaxe",
     "minecraft:netherite_pickaxe"
-  ]
+  ],
+  "blockBlacklist": [],
+  "blockWhitelist": [],
+  "autoPickup": false,
+  "veinMiningMode": false,
+  "durabilityScaling": false,
+  "xpCostPerBlock": 0,
+  "cooldownTicks": 0,
+  "miningPattern": "cube",
+  "particleEffects": false,
+  "soundEffects": false,
+  "permissionsEnabled": false,
+  "respectFortuneAndSilkTouch": true,
+  "enableAxeSupport": false,
+  "enableShovelSupport": false,
+  "enableHoeSupport": false
 }
 ```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `levels` | See above | Mining area dimensions for each enchantment level |
+| `allowedTools` | Pickaxes | Tools that can receive the enchantment |
+| `blockBlacklist` | `[]` | Blocks that cannot be area-mined (e.g., `["minecraft:spawner"]`) |
+| `blockWhitelist` | `[]` | If set, only these blocks can be area-mined |
+| `autoPickup` | `false` | Automatically collect mined blocks to inventory |
+| `veinMiningMode` | `false` | Only mine blocks of the same type |
+| `durabilityScaling` | `false` | Each block damages the tool |
+| `xpCostPerBlock` | `0` | XP cost per block mined (0 = free) |
+| `cooldownTicks` | `0` | Cooldown between uses in ticks (20 ticks = 1 second) |
+| `miningPattern` | `"cube"` | Mining pattern shape |
+| `particleEffects` | `false` | Show particles on blocks to be mined |
+| `soundEffects` | `false` | Play sound when area mining activates |
+| `permissionsEnabled` | `false` | Enable permission system integration |
+| `respectFortuneAndSilkTouch` | `true` | Apply Fortune/Silk Touch to all mined blocks |
+| `enableAxeSupport` | `false` | Allow enchantment on axes |
+| `enableShovelSupport` | `false` | Allow enchantment on shovels |
+| `enableHoeSupport` | `false` | Allow enchantment on hoes |
 
 ### Reload Config
 Use `/areamine reload` in-game (requires OP level 2) to reload the config without restarting the server.
@@ -94,6 +137,9 @@ Use `/areamine reload` in-game (requires OP level 2) to reload the config withou
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/areamine reload` | OP Level 2 | Reloads the configuration file |
+| `/areamine toggle <player>` | OP Level 2 | Enable/disable Area Mine for a specific player |
+| `/areamine stats` | OP Level 2 | View server-wide Area Mine statistics |
+| `/areamine stats <player>` | OP Level 2 | View statistics for a specific player |
 
 ## 📋 Requirements
 
@@ -116,10 +162,36 @@ Found a bug or have a suggestion? Please open an issue on the [Issues](https://g
 
 ## 🔄 Changelog
 
+### v1.2.0 - Major Feature Update
+**New Features:**
+- ✅ **Fortune & Silk Touch Support** - Area-mined blocks now respect Fortune and Silk Touch (enabled by default)
+- ✅ **Advanced Admin Commands** - Toggle, stats tracking for players
+- 🎁 **Auto-Pickup System** - Configurable auto-collection of mined blocks
+- ⛏️ **Vein Mining Mode** - Mine only matching block types
+- 💎 **Durability Scaling** - Configurable tool durability cost per block
+- ✨ **XP Cost System** - Optional XP consumption per block
+- ⏱️ **Cooldown System** - Configurable cooldown between activations
+- 🚫 **Block Filters** - Blacklist/whitelist for specific blocks
+- 🎨 **Particle Effects** - Visual feedback for area mining
+- 🔊 **Sound Effects** - Audio feedback for area mining
+- 📊 **Statistics Tracking** - Track blocks mined and usage per player
+- 🔧 **Tool Type Support** - Framework for axes, shovels, hoes (configurable)
+
+**Admin Commands:**
+- `/areamine toggle <player>` - Enable/disable for specific players
+- `/areamine stats [player]` - View mining statistics
+
+**Balance:**
+- All new features are disabled by default (except Fortune/Silk Touch)
+- Server admins can enable features via config
+- Maintains original behavior for existing servers
+
 ### v1.1.0
 - Added `/areamine reload` command for operators
 - Made config system hot-reloadable
-- Config changes now take effect immediately with the reload command
+- Fixed enchantment table availability
+- Added Minecraft enchantment tags (in_enchanting_table, tradeable)
+- Clarified server-side only installation
 
 ### v1.0.0
 - Initial release
