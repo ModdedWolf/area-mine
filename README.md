@@ -1,14 +1,17 @@
 # Area Mine Enchantment
 
-A Fabric mod for Minecraft 1.21.10 that adds a powerful Area Mine enchantment, allowing you to mine multiple blocks at once!
+A server-sided Fabric mod for Minecraft 1.21.10 that adds a powerful Area Mine enchantment, allowing you to mine multiple blocks at once!
 
 ![Minecraft Version](https://img.shields.io/badge/Minecraft-1.21.10-brightgreen)
 ![Mod Loader](https://img.shields.io/badge/Mod%20Loader-Fabric-blue)
+![Side](https://img.shields.io/badge/Side-Server-orange)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## 📖 Description
 
 The **Area Mine** enchantment can be applied to pickaxes and automatically mines blocks in an area around your target block. Perfect for large-scale mining operations and resource gathering!
+
+**⚠️ Server-Side Only**: This mod only needs to be installed on the server. Players can join without having the mod installed on their client!
 
 ## ✨ Features
 
@@ -27,7 +30,7 @@ The **Area Mine** enchantment can be applied to pickaxes and automatically mines
 
 - **OP Commands** - `/areamine reload` command to reload config without restarting
 
-- **Server-Friendly** - Works on both client and server
+- **Server-Side Mod** - Only needs to be installed on the server, no client installation required
 
 ## 🎮 How to Obtain
 
@@ -42,11 +45,15 @@ Combine enchanted books with your pickaxe using an anvil.
 
 ## 📥 Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) (version 0.17.3 or higher)
-2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
+### Server Installation
+
+1. Install [Fabric Loader](https://fabricmc.net/use/) (version 0.17.3 or higher) on your server
+2. Install [Fabric API](https://modrinth.com/mod/fabric-api) in your server's mods folder
 3. Download the latest mod JAR from the [Releases](https://github.com/ModdedWolf/area-mine/releases) page
-4. Place the JAR file in your `.minecraft/mods` folder
-5. Launch Minecraft 1.21.10 with the Fabric profile
+4. Place the JAR file in your server's `mods` folder
+5. Start your Fabric server
+
+**Note**: Players do NOT need to install this mod on their client to join your server!
 
 ## ⚙️ Configuration
 
