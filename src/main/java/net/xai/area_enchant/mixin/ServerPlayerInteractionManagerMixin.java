@@ -18,8 +18,10 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.xai.area_enchant.AdvancementTracker;
 import net.xai.area_enchant.AreaEnchantMod;
 import net.xai.area_enchant.PlayerDataManager;
 import org.spongepowered.asm.mixin.Mixin;
@@ -71,6 +73,46 @@ public abstract class ServerPlayerInteractionManagerMixin {
         if (level <= 0) {
             miningFace = null;
             return;
+        }
+
+        // Creative mode bypass
+        if (player.isCreative() && AreaEnchantMod.config.creativeModeBypass) {
+            // Creative players can use freely
+        }
+
+        // Check enchantment conflicts
+        if (!AreaEnchantMod.config.enchantmentConflicts.isEmpty()) {
+            for (String conflictId : AreaEnchantMod.config.enchantmentConflicts) {
+                var conflictEnchant = enchantmentRegistry.get().getEntry(Identifier.of(conflictId));
+                if (conflictEnchant.isPresent() && EnchantmentHelper.getLevel(conflictEnchant.get(), stack) > 0) {
+                    if (AreaEnchantMod.config.actionBarFeedback) {
+                        player.sendMessage(Text.literal("§cArea Mine conflicts with " + conflictId), true);
+                    }
+                    miningFace = null;
+                    return;
+                }
+            }
+        }
+
+        // Tool durability check
+        if (AreaEnchantMod.config.preventToolBreaking && !player.isCreative()) {
+            int currentDurability = stack.getMaxDamage() - stack.getDamage();
+            int estimatedBlocks = estimateBlockCount(pos, level);
+            
+            if (currentDurability <= estimatedBlocks) {
+                if (AreaEnchantMod.config.actionBarFeedback) {
+                    player.sendMessage(Text.literal("§cTool too damaged! Would break."), true);
+                }
+                miningFace = null;
+                return;
+            }
+            
+            // Durability warning
+            if (AreaEnchantMod.config.durabilityWarning && currentDurability <= AreaEnchantMod.config.durabilityWarningThreshold) {
+                if (AreaEnchantMod.config.actionBarFeedback) {
+                    player.sendMessage(Text.literal("§eWarning: Tool durability low (" + currentDurability + ")"), true);
+                }
+            }
         }
 
         // Check if player has area mine disabled
@@ -191,9 +233,32 @@ public abstract class ServerPlayerInteractionManagerMixin {
                         }
                     }
                     
+                    // World protection check - basic implementation
+                    // Note: Full integration would need actual protection mod APIs
+                    if (AreaEnchantMod.config.checkWorldProtection) {
+                        // Could integrate with WorldGuard, GriefPrevention, etc. here
+                        // For now, just a placeholder that servers can extend
+                    }
+                    
                     blocksToMine.add(otherPos);
+                    
+                    // Max block limit check
+                    if (blocksToMine.size() >= AreaEnchantMod.config.maxBlocksPerActivation) {
+                        break;
+                    }
+                }
+                if (blocksToMine.size() >= AreaEnchantMod.config.maxBlocksPerActivation) {
+                    break;
                 }
             }
+            if (blocksToMine.size() >= AreaEnchantMod.config.maxBlocksPerActivation) {
+                break;
+            }
+        }
+        
+        // Max blocks warning
+        if (blocksToMine.size() >= AreaEnchantMod.config.maxBlocksPerActivation && AreaEnchantMod.config.actionBarFeedback) {
+            player.sendMessage(Text.literal("§eReached max block limit (" + AreaEnchantMod.config.maxBlocksPerActivation + ")"), true);
         }
 
         // Particles effect
@@ -217,6 +282,9 @@ public abstract class ServerPlayerInteractionManagerMixin {
         try {
             for (BlockPos otherPos : blocksToMine) {
                 BlockState blockState = world.getBlockState(otherPos);
+                
+                // Track diamond mining for advancement
+                AdvancementTracker.onDiamondMined(player, blockState.getBlock());
                 
                 // Handle Fortune/Silk Touch
                 if (AreaEnchantMod.config.respectFortuneAndSilkTouch && AreaEnchantMod.config.autoPickup) {
@@ -258,6 +326,20 @@ public abstract class ServerPlayerInteractionManagerMixin {
             
             // Update stats
             playerData.addBlocksMined(blocksMined);
+            
+            // Track first use advancement
+            if (playerData.isFirstUse()) {
+                playerData.setFirstUse(false);
+                AdvancementTracker.onFirstUse(player);
+            }
+            
+            // Check advancement progress
+            AdvancementTracker.onBlocksMined(player, blocksMined);
+            
+            // Action bar feedback
+            if (AreaEnchantMod.config.actionBarFeedback && blocksMined > 0) {
+                player.sendMessage(Text.literal("§aArea Mine: §f" + blocksMined + " §ablocks mined"), true);
+            }
             
         } finally {
             isBreakingArea = false;

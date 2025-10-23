@@ -23,7 +23,11 @@ public class PlayerDataManager {
         private long lastUseTick = 0;
         private int blocksMined = 0;
         private int timesUsed = 0;
+        private int diamondsMined = 0;
         private boolean disabled = false;
+        private boolean firstUse = true;
+        private boolean earnedEfficiencyExpert = false;
+        private boolean earnedDiamondDigger = false;
         
         public boolean isOnCooldown(long currentTick, int cooldownTicks) {
             if (cooldownTicks <= 0) return false;
@@ -39,8 +43,16 @@ public class PlayerDataManager {
             this.blocksMined += count;
         }
         
+        public void addDiamondsMined(int count) {
+            this.diamondsMined += count;
+        }
+        
         public int getBlocksMined() {
             return blocksMined;
+        }
+        
+        public int getDiamondsMined() {
+            return diamondsMined;
         }
         
         public int getTimesUsed() {
@@ -57,6 +69,30 @@ public class PlayerDataManager {
         
         public long getLastUseTick() {
             return lastUseTick;
+        }
+        
+        public boolean isFirstUse() {
+            return firstUse;
+        }
+        
+        public void setFirstUse(boolean firstUse) {
+            this.firstUse = firstUse;
+        }
+        
+        public boolean hasEarnedEfficiencyExpert() {
+            return earnedEfficiencyExpert;
+        }
+        
+        public void setEarnedEfficiencyExpert(boolean earned) {
+            this.earnedEfficiencyExpert = earned;
+        }
+        
+        public boolean hasEarnedDiamondDigger() {
+            return earnedDiamondDigger;
+        }
+        
+        public void setEarnedDiamondDigger(boolean earned) {
+            this.earnedDiamondDigger = earned;
         }
     }
 }

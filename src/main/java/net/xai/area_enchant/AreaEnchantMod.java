@@ -101,6 +101,16 @@ public class AreaEnchantMod implements ModInitializer {
             try {
                 String json = Files.readString(configPath);
                 config = gson.fromJson(json, Config.class);
+                
+                // Config migration system
+                if (config.configVersion < 2) {
+                    System.out.println("[Area Mine] Migrating config from version " + config.configVersion + " to 2");
+                    migrateConfig(config);
+                    config.configVersion = 2;
+                    // Save migrated config
+                    Files.writeString(configPath, gson.toJson(config));
+                    System.out.println("[Area Mine] Config migration complete!");
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 config = getDefaultConfig();
@@ -115,6 +125,22 @@ public class AreaEnchantMod implements ModInitializer {
                 e.printStackTrace();
             }
         }
+    }
+    
+    private static void migrateConfig(Config oldConfig) {
+        // Migration from version 0/1 to 2
+        // Add new v1.3.0 fields with defaults if they don't exist
+        if (oldConfig.enchantmentConflicts == null) {
+            oldConfig.enchantmentConflicts = new ArrayList<>();
+        }
+        // Set new defaults for v1.3.0 features
+        oldConfig.maxBlocksPerActivation = 100;
+        oldConfig.preventToolBreaking = true;
+        oldConfig.durabilityWarning = true;
+        oldConfig.durabilityWarningThreshold = 20;
+        oldConfig.actionBarFeedback = true;
+        oldConfig.creativeModeBypass = true;
+        oldConfig.checkWorldProtection = true;
     }
 
     private static void generateConfigGuide(Path configDir) {
@@ -288,10 +314,22 @@ public class AreaEnchantMod implements ModInitializer {
         defaultConfig.enableShovelSupport = false;
         defaultConfig.enableHoeSupport = false;
         
+        // New v1.3.0 features
+        defaultConfig.maxBlocksPerActivation = 100;
+        defaultConfig.preventToolBreaking = true;
+        defaultConfig.durabilityWarning = true;
+        defaultConfig.durabilityWarningThreshold = 20;
+        defaultConfig.actionBarFeedback = true;
+        defaultConfig.creativeModeBypass = true;
+        defaultConfig.checkWorldProtection = true;
+        // enchantmentConflicts is already initialized as empty ArrayList
+        
         return defaultConfig;
     }
 
     public static class Config {
+        public int configVersion = 2; // Version tracking for migrations
+        
         public Map<Integer, Size> levels = new HashMap<>();
         public List<String> allowedTools = new ArrayList<>();
         public List<String> blockBlacklist = new ArrayList<>();
@@ -313,6 +351,16 @@ public class AreaEnchantMod implements ModInitializer {
         public boolean enableAxeSupport = false;
         public boolean enableShovelSupport = false;
         public boolean enableHoeSupport = false;
+        
+        // New v1.3.0 features
+        public int maxBlocksPerActivation = 100;
+        public boolean preventToolBreaking = true;
+        public boolean durabilityWarning = true;
+        public int durabilityWarningThreshold = 20;
+        public boolean actionBarFeedback = true;
+        public boolean creativeModeBypass = true;
+        public List<String> enchantmentConflicts = new ArrayList<>();
+        public boolean checkWorldProtection = true;
     }
 
     public static class Size {

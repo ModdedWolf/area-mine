@@ -1,0 +1,24 @@
+{
+  "parent": "area_enchant:efficiency_expert",
+  "criteria": {
+    "requirement": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "advancement.area_enchant.diamond_digger.description"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "id": "minecraft:diamond"
+    },
+    "show_toast": true,
+    "title": {
+      "translate": "advancement.area_enchant.diamond_digger.description"
+    }
+  }
+}
+

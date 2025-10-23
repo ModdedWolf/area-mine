@@ -162,6 +162,37 @@ Found a bug or have a suggestion? Please open an issue on the [Issues](https://g
 
 ## 🔄 Changelog
 
+### v1.3.0 - Polish & Quality Update 🎨
+**Major New Features:**
+- 🏆 **Achievement System** - In-game achievements for milestones (1000 blocks, 100 diamonds)
+- 🌍 **Multi-Language Support** - 8 languages: English, Spanish, German, French, Portuguese, Chinese, Japanese, Korean, Russian
+- 🔧 **Config Migration System** - Auto-upgrades old configs, no breaking changes
+- 🛡️ **Tool Durability Protection** - Prevents tool breaking, shows warnings (enabled by default)
+- 📊 **Action Bar Feedback** - Non-intrusive mining notifications (enabled by default)
+- ⚡ **Max Block Limit** - Performance cap at 100 blocks per activation (configurable)
+- 🎮 **Creative Mode Bypass** - Creative players bypass all costs (enabled by default)
+- ⚔️ **Enchantment Conflicts** - Configurable incompatibility with other enchantments
+- 🏰 **World Protection Framework** - Placeholder for protection mod integration
+
+**Config Improvements:**
+- Config now in organized folder: `config/area-mine/`
+- Auto-generated comprehensive guide file
+- Pretty-printed JSON for easy editing
+- Version tracking prevents breaking changes
+
+**Default Enabled Features:**
+- ✅ Fortune & Silk Touch Support
+- ✅ Tool Durability Protection
+- ✅ Durability Warnings
+- ✅ Action Bar Feedback
+- ✅ Creative Mode Bypass
+- ✅ World Protection Check
+
+**Achievement Milestones:**
+- "Getting Started" - First use
+- "Efficiency Expert" - Mine 1,000 blocks
+- "Diamond Digger" - Mine 100 diamonds
+
 ### v1.2.0 - Major Feature Update
 **New Features:**
 - ✅ **Fortune & Silk Touch Support** - Area-mined blocks now respect Fortune and Silk Touch (enabled by default)

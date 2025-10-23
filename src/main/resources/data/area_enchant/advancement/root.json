@@ -1,0 +1,24 @@
+{
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "background": "minecraft:textures/block/stone.png",
+    "description": {
+      "translate": "advancement.area_enchant.root.description"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "id": "minecraft:diamond_pickaxe"
+    },
+    "show_toast": false,
+    "title": {
+      "translate": "advancement.area_enchant.root.title"
+    }
+  }
+}
+
