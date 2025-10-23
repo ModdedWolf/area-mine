@@ -94,7 +94,8 @@ public class AreaEnchantMod implements ModInitializer {
     }
 
     private static void loadConfig() {
-        Path configPath = Paths.get("config/area_enchant.json");
+        Path configDir = Paths.get("config/area-mine");
+        Path configPath = configDir.resolve("config.json");
 
         if (Files.exists(configPath)) {
             try {
@@ -107,9 +108,9 @@ public class AreaEnchantMod implements ModInitializer {
         } else {
             config = getDefaultConfig();
             try {
-                Files.createDirectories(configPath.getParent());
+                Files.createDirectories(configDir);
                 Files.writeString(configPath, gson.toJson(config));
-                generateConfigGuide(configPath.getParent());
+                generateConfigGuide(configDir);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -123,8 +124,8 @@ public class AreaEnchantMod implements ModInitializer {
                             Area Mine Enchantment - Configuration Guide
                 ================================================================================
                 
-                This file explains all configuration options in area_enchant.json
-                Edit area_enchant.json, then use /areamine reload to apply changes.
+                This file explains all configuration options in config.json
+                Edit config.json, then use /areamine reload to apply changes.
                 
                 --------------------------------------------------------------------------------
                 MINING AREA DIMENSIONS
@@ -254,7 +255,7 @@ public class AreaEnchantMod implements ModInitializer {
                 ================================================================================
                 """;
             
-            Path guidePath = configDir.resolve("area_enchant_config_guide.txt");
+            Path guidePath = configDir.resolve("CONFIG_GUIDE.txt");
             Files.writeString(guidePath, guide);
         } catch (IOException e) {
             e.printStackTrace();
