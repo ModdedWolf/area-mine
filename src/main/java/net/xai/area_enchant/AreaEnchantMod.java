@@ -1,6 +1,7 @@
 package net.xai.area_enchant;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.object.builder.v1.trade.TradeOfferHelper;
@@ -32,7 +33,7 @@ import java.util.Optional;
 public class AreaEnchantMod implements ModInitializer {
     public static final RegistryKey<net.minecraft.enchantment.Enchantment> AREA_MINE = RegistryKey.of(RegistryKeys.ENCHANTMENT, Identifier.of("area_enchant", "area_mine"));
     public static Config config;
-    private static final Gson gson = new Gson();
+    private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     @Override
     public void onInitialize() {
@@ -108,9 +109,155 @@ public class AreaEnchantMod implements ModInitializer {
             try {
                 Files.createDirectories(configPath.getParent());
                 Files.writeString(configPath, gson.toJson(config));
+                generateConfigGuide(configPath.getParent());
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    private static void generateConfigGuide(Path configDir) {
+        try {
+            String guide = """
+                ================================================================================
+                            Area Mine Enchantment - Configuration Guide
+                ================================================================================
+                
+                This file explains all configuration options in area_enchant.json
+                Edit area_enchant.json, then use /areamine reload to apply changes.
+                
+                --------------------------------------------------------------------------------
+                MINING AREA DIMENSIONS
+                --------------------------------------------------------------------------------
+                levels: Defines mining area size for each enchantment level
+                  - horizontal: Width left/right of target block (default: 1, 2, 3)
+                  - vertical: Height up/down from target block (default: 2, 2, 3)
+                  - depth: Distance forward into wall (default: 1, 2, 3)
+                
+                Example: Level 2 with {horizontal: 2, vertical: 2, depth: 2}
+                         mines a 2×2×2 cube of blocks
+                
+                --------------------------------------------------------------------------------
+                TOOL CONFIGURATION
+                --------------------------------------------------------------------------------
+                allowedTools: List of tools that can receive the enchantment
+                  Default: ["minecraft:iron_pickaxe", "minecraft:diamond_pickaxe", 
+                            "minecraft:netherite_pickaxe"]
+                  
+                enableAxeSupport: Allow enchantment on axes (default: false)
+                enableShovelSupport: Allow enchantment on shovels (default: false)
+                enableHoeSupport: Allow enchantment on hoes (default: false)
+                
+                --------------------------------------------------------------------------------
+                BLOCK FILTERING
+                --------------------------------------------------------------------------------
+                blockBlacklist: Blocks that CANNOT be area-mined
+                  Default: [] (empty - no restrictions)
+                  Example: ["minecraft:spawner", "minecraft:bedrock"]
+                  
+                blockWhitelist: If set, ONLY these blocks can be area-mined
+                  Default: [] (empty - all blocks allowed)
+                  Example: ["minecraft:stone", "minecraft:deepslate"]
+                  Note: When whitelist is used, blacklist is ignored
+                
+                --------------------------------------------------------------------------------
+                GAMEPLAY FEATURES (All disabled by default)
+                --------------------------------------------------------------------------------
+                autoPickup: Automatically collect mined blocks to inventory
+                  Default: false
+                  When true: Blocks go directly to player inventory
+                  When false: Blocks drop normally
+                
+                veinMiningMode: Only mine blocks of the same type
+                  Default: false
+                  When true: Only mines blocks matching the one you broke
+                  Perfect for: Mining ore veins efficiently
+                
+                respectFortuneAndSilkTouch: Apply Fortune/Silk Touch to area-mined blocks
+                  Default: true ✅ ENABLED
+                  When true: Fortune/Silk Touch affects all blocks in the area
+                  When false: Only the target block gets enchantment bonuses
+                
+                --------------------------------------------------------------------------------
+                BALANCE & COST SYSTEMS (All disabled/0 by default)
+                --------------------------------------------------------------------------------
+                durabilityScaling: Each mined block damages the tool
+                  Default: false
+                  When true: Tool loses 1 durability per block mined
+                  When false: Tool loses 1 durability per area mine use (original behavior)
+                
+                xpCostPerBlock: XP cost per block mined
+                  Default: 0 (free)
+                  Example: 1 = costs 1 XP per block
+                  Note: Player must have enough XP or mining will be cancelled
+                
+                cooldownTicks: Cooldown between area mine uses
+                  Default: 0 (no cooldown)
+                  Example: 20 = 1 second, 100 = 5 seconds
+                  Note: 20 ticks = 1 second in Minecraft
+                
+                --------------------------------------------------------------------------------
+                VISUAL & AUDIO EFFECTS (All disabled by default)
+                --------------------------------------------------------------------------------
+                particleEffects: Show particles on blocks before mining
+                  Default: false
+                  When true: Displays enchantment particles on target blocks
+                
+                soundEffects: Play sound when area mining activates
+                  Default: false
+                  When true: Plays level-up sound on activation
+                
+                --------------------------------------------------------------------------------
+                MINING PATTERNS
+                --------------------------------------------------------------------------------
+                miningPattern: Shape of the mining area
+                  Default: "cube"
+                  Available: "cube" (more patterns coming in future updates)
+                
+                --------------------------------------------------------------------------------
+                ADMIN & PERMISSIONS
+                --------------------------------------------------------------------------------
+                permissionsEnabled: Enable permission system integration
+                  Default: false
+                  Note: Currently a placeholder for future permission mod support
+                
+                ================================================================================
+                EXAMPLES - Common Configurations
+                ================================================================================
+                
+                [Balanced Survival Server]
+                {
+                  "xpCostPerBlock": 1,
+                  "durabilityScaling": true,
+                  "cooldownTicks": 60,
+                  "veinMiningMode": true,
+                  "particleEffects": true
+                }
+                
+                [Creative/Peaceful Server]
+                {
+                  "autoPickup": true,
+                  "particleEffects": true,
+                  "soundEffects": true
+                }
+                
+                [Hardcore/Difficult Server]
+                {
+                  "xpCostPerBlock": 5,
+                  "durabilityScaling": true,
+                  "cooldownTicks": 200,
+                  "blockBlacklist": ["minecraft:ancient_debris", "minecraft:diamond_ore"]
+                }
+                
+                ================================================================================
+                For more help, visit: https://github.com/ModdedWolf/area-mine
+                ================================================================================
+                """;
+            
+            Path guidePath = configDir.resolve("area_enchant_config_guide.txt");
+            Files.writeString(guidePath, guide);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
