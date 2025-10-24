@@ -1,0 +1,11 @@
+{
+  "enchantment.area_enchant.area_mine": "Area Mine",
+  "advancement.area_enchant.root.title": "Area Mine",
+  "advancement.area_enchant.root.description": "Mine multiple blocks at once!",
+  "advancement.area_enchant.first_use.title": "Getting Started",
+  "advancement.area_enchant.first_use.description": "Use the Area Mine enchantment for the first time",
+  "advancement.area_enchant.efficiency_expert.title": "Efficiency Expert",
+  "advancement.area_enchant.efficiency_expert.description": "Mine 1,000 blocks using Area Mine",
+  "advancement.area_enchant.diamond_digger.title": "Diamond Digger",
+  "advancement.area_enchant.diamond_digger.description": "Mine 100 diamonds using Area Mine"
+}
