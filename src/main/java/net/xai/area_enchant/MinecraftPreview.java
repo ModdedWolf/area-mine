@@ -123,8 +123,8 @@ public class MinecraftPreview {
         
         // Get particle density from config
         int particlesPerEdge = switch (AreaEnchantMod.config.previewDensity.toLowerCase()) {
-            case "full" -> 4;
-            case "minimal" -> 1;
+            case "high" -> 3;
+            case "low" -> 1;
             default -> 2; // medium
         };
         
@@ -169,17 +169,17 @@ public class MinecraftPreview {
     
     /**
      * Get particle type based on mining pattern
-     * Cube: White, Sphere: Blue, Tunnel: Yellow, Cross: Green, Layer: Red, Vertical: Purple
+     * Cube: Purple, Sphere: Orange, Tunnel: Yellow, Cross: Green, Layer: Cyan, Vertical: Purple Portal
      */
     private static net.minecraft.particle.SimpleParticleType getParticleForPattern(String pattern) {
         return switch (pattern.toLowerCase()) {
-            case "cube" -> ParticleTypes.END_ROD;           // White (stable)
+            case "cube" -> ParticleTypes.ENCHANT;           // Purple (subtle, not bright)
             case "sphere" -> ParticleTypes.WAX_ON;          // Orange sparkles (stable, no flicker)
             case "tunnel" -> ParticleTypes.FLAME;           // Yellow/Orange
             case "cross" -> ParticleTypes.HAPPY_VILLAGER;   // Green
             case "layer" -> ParticleTypes.GLOW;             // Cyan/Teal (subtle, non-intrusive)
             case "vertical" -> ParticleTypes.PORTAL;        // Purple
-            default -> ParticleTypes.END_ROD;               // Fallback to white
+            default -> ParticleTypes.ENCHANT;               // Fallback to purple (subtle)
         };
     }
 }

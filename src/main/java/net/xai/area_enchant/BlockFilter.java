@@ -41,33 +41,56 @@ public class BlockFilter {
         // Pickaxes are effective on stone, ores, metals, bricks, concrete, etc.
         // NOT effective on: dirt, sand, gravel, wood, leaves, crops, etc.
         
-        // Use Minecraft's tool effectiveness system
-        ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE);
-        if (!pickaxe.isSuitableFor(blockState)) {
+        // Explicitly exclude non-pickaxe blocks first
+        if (blockId.contains("dirt") ||
+            blockId.contains("grass") ||
+            blockId.contains("sand") ||
+            blockId.contains("gravel") ||
+            blockId.contains("log") ||
+            blockId.contains("wood") ||
+            blockId.contains("leaves") ||
+            blockId.contains("wool") ||
+            blockId.contains("carpet") ||
+            blockId.contains("planks") ||
+            blockId.contains("crop") ||
+            blockId.contains("wheat") ||
+            blockId.contains("carrot") ||
+            blockId.contains("potato") ||
+            blockId.contains("beetroot") ||
+            blockId.contains("soul_sand") ||
+            blockId.contains("soul_soil") ||
+            blockId.contains("farmland") ||
+            blockId.contains("mycelium") ||
+            blockId.contains("podzol")) {
             return false;
         }
         
-        // Additional safeguards: explicitly exclude non-pickaxe blocks
-        return !blockId.contains("dirt") &&
-               !blockId.contains("grass") &&
-               !blockId.contains("sand") &&
-               !blockId.contains("gravel") &&
-               !blockId.contains("log") &&
-               !blockId.contains("wood") &&
-               !blockId.contains("leaves") &&
-               !blockId.contains("wool") &&
-               !blockId.contains("carpet") &&
-               !blockId.contains("planks") &&
-               !blockId.contains("crop") &&
-               !blockId.contains("wheat") &&
-               !blockId.contains("carrot") &&
-               !blockId.contains("potato") &&
-               !blockId.contains("beetroot") &&
-               !blockId.contains("soul_sand") &&
-               !blockId.contains("soul_soil") &&
-               !blockId.contains("farmland") &&
-               !blockId.contains("mycelium") &&
-               !blockId.contains("podzol");
+        // Explicitly whitelist common mining blocks (these are always pickaxe blocks)
+        if (blockId.contains("stone") ||
+            blockId.contains("netherrack") ||
+            blockId.contains("basalt") ||
+            blockId.contains("blackstone") ||
+            blockId.contains("ore") ||
+            blockId.contains("deepslate") ||
+            blockId.contains("concrete") ||
+            blockId.contains("terracotta") ||
+            blockId.contains("brick") ||
+            blockId.contains("obsidian") ||
+            blockId.contains("ancient_debris") ||
+            blockId.contains("nether_gold") ||
+            blockId.contains("quartz") ||
+            blockId.contains("glowstone") ||
+            blockId.contains("magma") ||
+            blockId.equals("minecraft:end_stone")) {
+            return true;
+        }
+        
+        // For other blocks, check if pickaxe mines faster than hand
+        ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE);
+        float pickaxeSpeed = pickaxe.getMiningSpeedMultiplier(blockState);
+        
+        // If pickaxe has a mining speed >= 1.0, it's effective on this block
+        return pickaxeSpeed >= 1.0f;
     }
     
     private static boolean isOreBlock(String blockId) {

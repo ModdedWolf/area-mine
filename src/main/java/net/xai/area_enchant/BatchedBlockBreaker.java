@@ -181,7 +181,7 @@ public class BatchedBlockBreaker {
                     
                     // Prevent tool breaking
                     if (AreaEnchantMod.config.preventToolBreaking && tool.getDamage() >= tool.getMaxDamage() - 1) {
-                        player.sendMessage(Text.literal("§c[Area Mine] Stopped to prevent tool breaking!"), true);
+                        player.sendMessage(Text.literal("§c[Area Mine] Stopped to prevent tool breaking!"), false);
                         cancelled = true;
                     }
                 }

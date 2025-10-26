@@ -44,7 +44,9 @@ public abstract class ServerPlayerInteractionManagerMixin {
 
     @Inject(method = "processBlockBreakingAction", at = @At("HEAD"))
     private void captureMiningFace(BlockPos pos, PlayerActionC2SPacket.Action action, Direction face, int maxUpdateDepth, int sequence, CallbackInfo ci) {
-        if (action == PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK) {
+        // Capture face for all breaking actions (handles insta-mine blocks)
+        if (action == PlayerActionC2SPacket.Action.START_DESTROY_BLOCK || 
+            action == PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK) {
             miningFace = face;
         }
     }
@@ -90,7 +92,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
                 var conflictEnchant = enchantmentRegistry.get().getEntry(Identifier.of(conflictId));
                 if (conflictEnchant.isPresent() && EnchantmentHelper.getLevel(conflictEnchant.get(), stack) > 0) {
                     if (AreaEnchantMod.config.actionBarFeedback) {
-                        player.sendMessage(Text.literal("§cArea Mine conflicts with " + conflictId), true);
+                        player.sendMessage(Text.literal("§cArea Mine conflicts with " + conflictId), false);
                     }
                     miningFace = null;
                     return;
@@ -134,7 +136,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
             // Check if tool would break
             if (currentDurability <= estimatedCost) {
                 if (AreaEnchantMod.config.actionBarFeedback) {
-                    player.sendMessage(Text.literal("§cTool too damaged! Would break."), true);
+                    player.sendMessage(Text.literal("§cTool too damaged! Would break."), false);
                 }
                 miningFace = null;
                 return;
@@ -144,11 +146,11 @@ public abstract class ServerPlayerInteractionManagerMixin {
             double durabilityPercent = (double) currentDurability / maxDurability;
             if (durabilityPercent <= 0.10) {
                 if (AreaEnchantMod.config.actionBarFeedback) {
-                    player.sendMessage(Text.literal("§c⚠ WARNING: Tool at " + String.format("%.1f", durabilityPercent * 100) + "% durability!"), true);
+                    player.sendMessage(Text.literal("§c⚠ WARNING: Tool at " + String.format("%.1f", durabilityPercent * 100) + "% durability!"), false);
                 }
             } else if (AreaEnchantMod.config.durabilityWarning && currentDurability <= AreaEnchantMod.config.durabilityWarningThreshold) {
                 if (AreaEnchantMod.config.actionBarFeedback) {
-                    player.sendMessage(Text.literal("§eWarning: Tool durability low (" + currentDurability + ")"), true);
+                    player.sendMessage(Text.literal("§eWarning: Tool durability low (" + currentDurability + ")"), false);
                 }
             }
         }
@@ -162,15 +164,13 @@ public abstract class ServerPlayerInteractionManagerMixin {
             return;
         }
         
-        // Check if player has unlocked the current pattern
-        String currentPattern = AreaEnchantMod.config.miningPattern;
-        if (!playerData.hasPattern(currentPattern)) {
-            if (AreaEnchantMod.config.actionBarFeedback) {
-                player.sendMessage(Text.literal("§c[Area Mine] You haven't unlocked the " + currentPattern + " pattern! Use /areamine patterns"), true);
+            // Check if player has unlocked the current pattern
+            String currentPattern = AreaEnchantMod.config.miningPattern;
+            if (!playerData.hasPattern(currentPattern)) {
+                player.sendMessage(Text.literal("§c[Area Mine] You haven't unlocked the " + currentPattern + " pattern! Use /areamine patterns"), false);
+                miningFace = null;
+                return;
             }
-            miningFace = null;
-            return;
-        }
 
         // Check cooldown
         if (AreaEnchantMod.config.cooldownTicks > 0) {
@@ -179,7 +179,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
                 if (AreaEnchantMod.config.actionBarFeedback) {
                     long ticksRemaining = AreaEnchantMod.config.cooldownTicks - (currentTick - playerData.getLastUseTick());
                     double secondsRemaining = ticksRemaining / 20.0;
-                    player.sendMessage(Text.literal(String.format("§e[Area Mine] On cooldown: %.1fs remaining", secondsRemaining)), true);
+                    player.sendMessage(Text.literal(String.format("§e[Area Mine] On cooldown: %.1fs remaining", secondsRemaining)), false);
                 }
                 miningFace = null;
                 return;
@@ -263,7 +263,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
         
         // Max blocks warning
         if (filteredBlocks.size() >= AreaEnchantMod.config.maxBlocksPerActivation && AreaEnchantMod.config.actionBarFeedback) {
-            player.sendMessage(Text.literal("§eReached max block limit (" + AreaEnchantMod.config.maxBlocksPerActivation + ")"), true);
+            player.sendMessage(Text.literal("§eReached max block limit (" + AreaEnchantMod.config.maxBlocksPerActivation + ")"), false);
         }
 
         // Particles effect

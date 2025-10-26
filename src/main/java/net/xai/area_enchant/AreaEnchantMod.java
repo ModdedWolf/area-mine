@@ -334,6 +334,16 @@ public class AreaEnchantMod implements ModInitializer {
             oldConfig.patternLevels.put("vertical", Map.of(1, new Size(1, 5, 1), 2, new Size(1, 8, 1), 3, new Size(1, 12, 1)));
         }
         
+        // Add pattern costs for unlocking patterns (v4.0.0)
+        if (oldConfig.patternCosts == null || oldConfig.patternCosts.isEmpty()) {
+            oldConfig.patternCosts = new HashMap<>();
+            oldConfig.patternCosts.put("sphere", 1000000);
+            oldConfig.patternCosts.put("tunnel", 2500000);
+            oldConfig.patternCosts.put("cross", 5000000);
+            oldConfig.patternCosts.put("layer", 10000000);
+            oldConfig.patternCosts.put("vertical", 25000000);
+        }
+        
         // Add Silk Touch to conflicts if not already present
         if (!oldConfig.enchantmentConflicts.contains("minecraft:silk_touch")) {
             oldConfig.enchantmentConflicts.add("minecraft:silk_touch");
