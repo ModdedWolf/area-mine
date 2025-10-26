@@ -7,5 +7,8 @@
   "advancement.area_enchant.efficiency_expert.title": "Efficiency Expert",
   "advancement.area_enchant.efficiency_expert.description": "Mine 1,000 blocks using Area Mine",
   "advancement.area_enchant.diamond_digger.title": "Diamond Digger",
-  "advancement.area_enchant.diamond_digger.description": "Mine 100 diamonds using Area Mine"
+  "advancement.area_enchant.diamond_digger.description": "Mine 100 diamonds using Area Mine",
+  "key.area_enchant.toggle": "Toggle Area Mining",
+  "key.area_enchant.preview": "Show Mining Preview",
+  "category.area_enchant": "Area Mine"
 }

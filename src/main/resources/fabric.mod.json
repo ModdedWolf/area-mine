@@ -8,7 +8,8 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["net.xai.area_enchant.AreaEnchantMod"]
+    "main": ["net.xai.area_enchant.AreaEnchantMod"],
+    "client": ["net.xai.area_enchant.AreaEnchantClientMod"]
   },
   "mixins": ["area_enchant.mixins.json"],
     "depends": {
