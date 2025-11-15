@@ -131,7 +131,13 @@ public class AreaEnchantMod implements ModInitializer {
         // Register event-based area mining handler (replaces mixin approach)
         AreaMineHandler.register();
         
-        // Reset session blocks on player disconnect
+        // Reset session blocks on player disconnect and ensure world directory is set on join
+        net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+            // CRITICAL: Update world directory when player joins to ensure it's set correctly
+            // This is especially important for singleplayer world switching
+            updateWorldDirectory(server);
+        });
+        
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             UUID playerId = handler.player.getUuid();
             PlayerDataManager.PlayerData data = PlayerDataManager.get(playerId);
@@ -159,29 +165,14 @@ public class AreaEnchantMod implements ModInitializer {
         
         // Periodically save player data (every 5 minutes) and set world save directory
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            // CRITICAL: Reset world directory tracking on every server start
+            // This ensures we always detect the world correctly, even if the static variable persisted
+            PlayerDataManager.resetWorldDirectoryTracking();
+            
             // Set world-specific save directory for player data
-            try {
-                // Get the world save directory - use the server's run directory
-                Path serverDir = server.getRunDirectory();
-                // For singleplayer, worlds are in saves/ directory
-                // For dedicated server, the world is in the server directory
-                Path worldSaveDir;
-                if (server.isDedicated()) {
-                    // Dedicated server: world is in the server directory
-                    worldSaveDir = serverDir;
-                } else {
-                    // Singleplayer: worlds are in saves/ directory
-                    // Get the world name from save properties
-                    String worldName = server.getSaveProperties().getLevelName();
-                    worldSaveDir = serverDir.resolve("saves").resolve(worldName);
-                }
-                PlayerDataManager.setWorldSaveDirectory(worldSaveDir);
-            } catch (Exception e) {
-                System.err.println("[Area Mine] Failed to get world save directory: " + e.getMessage());
-                e.printStackTrace();
-                // Fallback to default
-                PlayerDataManager.setWorldSaveDirectory(Paths.get("world"));
-            }
+            // CRITICAL: This must run when the server starts to detect the world directory
+            updateWorldDirectory(server);
+            
             
             server.getWorlds().forEach(world -> {
                 // Schedule periodic saves using server tick scheduler
@@ -292,6 +283,61 @@ public class AreaEnchantMod implements ModInitializer {
         });
     }
 
+    /**
+     * Update the world save directory for player data.
+     * This is called on server start and player join to ensure correct world detection.
+     */
+    private static void updateWorldDirectory(net.minecraft.server.MinecraftServer server) {
+        try {
+            Path worldSaveDir;
+            if (server.isDedicated()) {
+                // Dedicated server: world is in the server directory
+                worldSaveDir = server.getRunDirectory();
+            } else {
+                // Singleplayer: worlds are in saves/ directory
+                // Get the world name from save properties
+                String worldName = server.getSaveProperties().getLevelName();
+                Path serverDir = server.getRunDirectory();
+                
+                // CRITICAL: In singleplayer, getRunDirectory() returns the .minecraft folder
+                // So we need to construct: <runDir>/saves/<worldName>
+                // NOTE: If two worlds have the same name, they will share the same directory and thus share stats
+                // This is expected behavior - use different world names to have separate stats
+                worldSaveDir = serverDir.resolve("saves").resolve(worldName);
+                
+                System.out.println("[Area Mine] [WORLD_DIR] Singleplayer detected");
+                System.out.println("[Area Mine] [WORLD_DIR] Server run directory: " + serverDir.toAbsolutePath());
+                System.out.println("[Area Mine] [WORLD_DIR] World name: " + worldName);
+                System.out.println("[Area Mine] [WORLD_DIR] Constructed world save dir: " + worldSaveDir.toAbsolutePath());
+                System.out.println("[Area Mine] [WORLD_DIR] NOTE: Worlds with the same name will share stats (they use the same directory)");
+                
+                // Verify the path exists
+                if (!java.nio.file.Files.exists(worldSaveDir)) {
+                    System.err.println("[Area Mine] [WORLD_DIR] WARNING: World save directory does not exist: " + worldSaveDir.toAbsolutePath());
+                    System.err.println("[Area Mine] [WORLD_DIR] This might indicate incorrect path construction");
+                } else {
+                    System.out.println("[Area Mine] [WORLD_DIR] World save directory exists: " + worldSaveDir.toAbsolutePath());
+                }
+            }
+            System.out.println("[Area Mine] [WORLD_DIR] Setting world save directory to: " + worldSaveDir.toAbsolutePath());
+            PlayerDataManager.setWorldSaveDirectory(worldSaveDir);
+        } catch (Exception e) {
+            System.err.println("[Area Mine] Failed to get world save directory: " + e.getMessage());
+            e.printStackTrace();
+            // Fallback to default
+            try {
+                Path serverDir = server.getRunDirectory();
+                String worldName = server.getSaveProperties().getLevelName();
+                Path fallbackPath = server.isDedicated() ? serverDir : serverDir.resolve("saves").resolve(worldName);
+                System.out.println("[Area Mine] [WORLD_DIR] Using fallback path: " + fallbackPath.toAbsolutePath());
+                PlayerDataManager.setWorldSaveDirectory(fallbackPath);
+            } catch (Exception e2) {
+                System.err.println("[Area Mine] Fallback also failed, using default: " + e2.getMessage());
+                PlayerDataManager.setWorldSaveDirectory(Paths.get("world"));
+            }
+        }
+    }
+    
     public static void reloadConfig() {
         loadConfig();
     }
