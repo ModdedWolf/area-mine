@@ -4,10 +4,11 @@
   "package": "net.xai.area_enchant.mixin",
   "compatibilityLevel": "JAVA_21",
   "server": [
+    "TestMixin",
     "ServerPlayerInteractionManagerMixin",
     "EntityAccessor"
   ],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

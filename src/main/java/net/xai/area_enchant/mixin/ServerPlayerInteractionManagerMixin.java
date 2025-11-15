@@ -33,6 +33,10 @@ import java.util.*;
 
 @Mixin(ServerPlayerInteractionManager.class)
 public abstract class ServerPlayerInteractionManagerMixin {
+    static {
+        System.out.println("[Area Mine] ServerPlayerInteractionManagerMixin class loaded!");
+        System.out.println("[Area Mine] Thread: " + Thread.currentThread().getName());
+    }
     @Shadow public abstract boolean tryBreakBlock(BlockPos pos);
 
     @Shadow public ServerWorld world;
@@ -44,6 +48,14 @@ public abstract class ServerPlayerInteractionManagerMixin {
 
     @Inject(method = "processBlockBreakingAction", at = @At("HEAD"))
     private void captureMiningFace(BlockPos pos, PlayerActionC2SPacket.Action action, Direction face, int maxUpdateDepth, int sequence, CallbackInfo ci) {
+        // Debug: Test if this mixin is being called
+        if (player != null) {
+            try {
+                player.sendMessage(Text.literal("§b[MINING FACE] Action: " + action + ", Face: " + face), false);
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
         // Capture face for all breaking actions (handles insta-mine blocks)
         if (action == PlayerActionC2SPacket.Action.START_DESTROY_BLOCK || 
             action == PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK) {
@@ -51,14 +63,55 @@ public abstract class ServerPlayerInteractionManagerMixin {
         }
     }
 
-    @Inject(method = "tryBreakBlock", at = @At("RETURN"))
+    // Inject into tryBreakBlock - use System.out.println to ensure we see it even if player is null
+    @Inject(method = "tryBreakBlock", at = @At(value = "HEAD"))
+    private void onBlockBreakHead(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        // Use System.out.println first - this will ALWAYS work if mixin is called
+        System.out.println("[Area Mine] [MIXIN HEAD] tryBreakBlock called at " + pos + " - MIXIN IS WORKING!");
+        System.out.println("[Area Mine] Thread: " + Thread.currentThread().getName() + ", player=" + (player != null ? player.getName().getString() : "null"));
+        if (player != null) {
+            try {
+                player.sendMessage(Text.literal("§6[MIXIN HEAD] tryBreakBlock called at " + pos), false);
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
+    }
+    
+    // Inject at RETURN to do the actual work
+    @Inject(method = "tryBreakBlock", at = @At(value = "RETURN"))
     private void onBlockBreak(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        // Use System.out.println first - this will ALWAYS work if mixin is called
+        System.out.println("[Area Mine] [MIXIN RETURN] tryBreakBlock returned at " + pos + " - MIXIN IS WORKING!");
+        onBlockBreakInternal(pos, cir);
+    }
+    
+    private void onBlockBreakInternal(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        // CRITICAL: Send message at the VERY START to verify mixin is called
+        if (player != null && world != null) {
+            try {
+                player.sendMessage(Text.literal("§c[MIXIN CALLED] tryBreakBlock at " + pos), false);
+            } catch (Exception e) {
+                // Ignore errors
+            }
+        }
+        
+        // Debug: Send message to player to verify mixin is called
+        // Only send if we have a player (avoid NPE)
+        if (player != null) {
+            player.sendMessage(Text.literal("§7[DEBUG] tryBreakBlock: return=" + cir.getReturnValue() + ", isBreaking=" + isBreakingArea + ", face=" + miningFace), false);
+        }
+        
         if (!cir.getReturnValue() || isBreakingArea || miningFace == null) {
+            if (player != null) {
+                player.sendMessage(Text.literal("§7[DEBUG] Early return: return=" + cir.getReturnValue() + ", isBreaking=" + isBreakingArea + ", face=" + miningFace), false);
+            }
             miningFace = null;
             return;
         }
 
         var stack = player.getMainHandStack();
+        player.sendMessage(Text.literal("§7[DEBUG] Checking item: " + stack.getItem()), false);
         Optional<net.minecraft.registry.Registry<Enchantment>> enchantmentRegistry = world.getRegistryManager().getOptional(RegistryKeys.ENCHANTMENT);
         if (enchantmentRegistry.isEmpty()) {
             miningFace = null;
@@ -70,13 +123,17 @@ public abstract class ServerPlayerInteractionManagerMixin {
             return;
         }
         int level = EnchantmentHelper.getLevel(entry, stack);
+        player.sendMessage(Text.literal("§7[DEBUG] Area Mine level: " + level), false);
         if (level <= 0) {
+            player.sendMessage(Text.literal("§7[DEBUG] No Area Mine enchantment"), false);
             miningFace = null;
             return;
         }
         
         // Check if crouch is required (v4)
+        player.sendMessage(Text.literal("§7[DEBUG] requireCrouch=" + AreaEnchantMod.config.requireCrouch + ", sneaking=" + player.isSneaking()), false);
         if (AreaEnchantMod.config.requireCrouch && !player.isSneaking()) {
+            player.sendMessage(Text.literal("§7[DEBUG] Crouch required!"), false);
             miningFace = null;
             return;
         }
@@ -268,6 +325,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
 
         // Particles effect
         if (AreaEnchantMod.config.particleEffects) {
+            player.sendMessage(Text.literal("§a[Area Mine] Found " + filteredBlocks.size() + " blocks to mine!"), false);
             for (BlockPos blockPos : filteredBlocks) {
                 world.spawnParticles(ParticleTypes.ENCHANT,
                         blockPos.getX() + 0.5, blockPos.getY() + 0.5, blockPos.getZ() + 0.5,
@@ -294,12 +352,15 @@ public abstract class ServerPlayerInteractionManagerMixin {
         
         // Use batched breaking system if enabled
         if (AreaEnchantMod.config.batchedBreaking) {
+            player.sendMessage(Text.literal("§e[Area Mine] Using batched breaking with " + filteredBlocks.size() + " blocks"), false);
             net.xai.area_enchant.BatchedBlockBreaker.startBreaking(player, world, filteredBlocks, 
                 player.getMainHandStack(), level, undoData);
             isBreakingArea = false;
             miningFace = null;
             return;
         }
+        
+        player.sendMessage(Text.literal("§e[Area Mine] Using instant breaking with " + filteredBlocks.size() + " blocks"), false);
         
         // Otherwise use instant breaking (original system)
         int blocksMined = 0;
@@ -335,26 +396,41 @@ public abstract class ServerPlayerInteractionManagerMixin {
                 String blockId = Registries.BLOCK.getId(blockState.getBlock()).toString();
                 blockCounts.put(blockId, blockCounts.getOrDefault(blockId, 0) + 1);
                 
-                // Handle Fortune/Silk Touch
-                if (AreaEnchantMod.config.respectFortuneAndSilkTouch && autoPickup) {
-                    // Get drops with enchantments
-                    List<ItemStack> drops = Block.getDroppedStacks(blockState, world, otherPos, world.getBlockEntity(otherPos), player, stack);
+                // Break blocks directly (can't use tryBreakBlock when isBreakingArea is true)
+                // Skip the original block that was already broken
+                if (otherPos.equals(pos)) {
+                    continue;
+                }
+                
+                // Get drops with enchantments (Fortune, Silk Touch, etc.) BEFORE breaking
+                List<ItemStack> drops = new ArrayList<>();
+                if (!player.isCreative()) {
+                    drops.addAll(Block.getDroppedStacks(blockState, world, otherPos, 
+                        world.getBlockEntity(otherPos), player, stack));
+                }
+                
+                // Break the block using breakBlock which properly handles everything
+                boolean broken = world.breakBlock(otherPos, false);
+                if (broken) {
+                    // Trigger block break events
+                    blockState.onStacksDropped(world, otherPos, stack, !player.isCreative());
                     
-                    // Remove the block
-                    world.removeBlock(otherPos, false);
-                    blockState.onStacksDropped(world, otherPos, stack, true);
-                    
-                    // Auto-pickup
-                    for (ItemStack drop : drops) {
-                        if (!player.getInventory().insertStack(drop)) {
-                            // Inventory full, drop item
-                            ItemEntity itemEntity = new ItemEntity(world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
-                            world.spawnEntity(itemEntity);
+                    // Handle drops (auto-pickup or drop in world)
+                    if (!player.isCreative()) {
+                        for (ItemStack drop : drops) {
+                            if (autoPickup) {
+                                if (!player.getInventory().insertStack(drop)) {
+                                    // Inventory full, drop item
+                                    ItemEntity itemEntity = new ItemEntity(world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
+                                    world.spawnEntity(itemEntity);
+                                }
+                            } else {
+                                Block.dropStack(world, otherPos, drop);
+                            }
                         }
                     }
                 } else {
-                    // Standard breaking (handles Fortune/Silk Touch automatically)
-                    tryBreakBlock(otherPos);
+                    player.sendMessage(Text.literal("§c[Area Mine] Failed to break block at " + otherPos), false);
                 }
                 
                 // Mending works like vanilla - it will repair from XP orbs (ores, mobs, etc.)

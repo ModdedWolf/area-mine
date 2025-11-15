@@ -14,7 +14,12 @@ import java.util.*;
 public class PlayerDataManager {
     private static final Map<UUID, PlayerData> playerData = new HashMap<>();
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path DATA_DIR = Paths.get("world/data/area_mine");
+    private static Path DATA_DIR = Paths.get("world/data/area_mine"); // Will be set per-world
+    
+    public static void setWorldSaveDirectory(Path worldSaveDir) {
+        DATA_DIR = worldSaveDir.resolve("data/area_mine");
+        System.out.println("[Area Mine] Player data directory set to: " + DATA_DIR);
+    }
     
     public static PlayerData get(UUID playerId) {
         return playerData.computeIfAbsent(playerId, k -> {
@@ -205,6 +210,8 @@ public class PlayerDataManager {
     
     public static class UndoData {
         public List<BlockStateData> blocks = new ArrayList<>();
+        public List<UUID> itemEntities = new ArrayList<>(); // Track dropped item entities
+        public Map<String, Integer> inventoryItems = new HashMap<>(); // Track items added to inventory (item ID -> count)
         public long timestamp;
         
         public UndoData() {
@@ -213,6 +220,14 @@ public class PlayerDataManager {
         
         public void addBlock(BlockPos pos, BlockState state) {
             blocks.add(new BlockStateData(pos, state));
+        }
+        
+        public void addItemEntity(UUID entityId) {
+            itemEntities.add(entityId);
+        }
+        
+        public void addInventoryItem(String itemId, int count) {
+            inventoryItems.put(itemId, inventoryItems.getOrDefault(itemId, 0) + count);
         }
         
         public static class BlockStateData {

@@ -42,10 +42,11 @@ public class BlockFilter {
         // NOT effective on: dirt, sand, gravel, wood, leaves, crops, etc.
         
         // Explicitly exclude non-pickaxe blocks first
+        // Note: Gravel CAN be mined with pickaxe (though shovel is faster), so we allow it
         if (blockId.contains("dirt") ||
             blockId.contains("grass") ||
             blockId.contains("sand") ||
-            blockId.contains("gravel") ||
+            // Gravel removed - it can be mined with pickaxe
             blockId.contains("log") ||
             blockId.contains("wood") ||
             blockId.contains("leaves") ||

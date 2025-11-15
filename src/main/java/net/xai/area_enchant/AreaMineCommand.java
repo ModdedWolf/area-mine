@@ -111,31 +111,60 @@ public class AreaMineCommand {
                 return 0;
             }
             
+            net.minecraft.server.world.ServerWorld world = source.getWorld();
+            
+            // Remove item entities that were dropped on the ground
+            int removedEntities = 0;
+            for (java.util.UUID entityId : undoData.itemEntities) {
+                net.minecraft.entity.Entity entity = world.getEntity(entityId);
+                if (entity instanceof net.minecraft.entity.ItemEntity) {
+                    entity.remove(net.minecraft.entity.Entity.RemovalReason.DISCARDED);
+                    removedEntities++;
+                }
+            }
+            
+            // Remove items from player inventory (tracked items)
+            int removedFromInventory = 0;
+            for (Map.Entry<String, Integer> entry : undoData.inventoryItems.entrySet()) {
+                String itemId = entry.getKey();
+                int count = entry.getValue();
+                
+                net.minecraft.util.Identifier identifier = net.minecraft.util.Identifier.of(itemId);
+                net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(identifier);
+                
+                if (item != null) {
+                    int removed = 0;
+                    for (int i = 0; i < player.getInventory().size() && removed < count; i++) {
+                        ItemStack stack = player.getInventory().getStack(i);
+                        if (stack.getItem() == item) {
+                            int toRemove = Math.min(stack.getCount(), count - removed);
+                            stack.decrement(toRemove);
+                            removed += toRemove;
+                            removedFromInventory += toRemove;
+                        }
+                    }
+                }
+            }
+            
+            // Restore blocks
             int restored = 0;
             for (PlayerDataManager.UndoData.BlockStateData blockData : undoData.blocks) {
                 // Restore the block
-                source.getWorld().setBlockState(blockData.pos, blockData.state);
-                
-                // Remove items from player inventory
-                ItemStack blockItem = new ItemStack(blockData.state.getBlock().asItem());
-                
-                if (!blockItem.isEmpty()) {
-                    player.getInventory().remove(
-                        stack -> stack.getItem() == blockItem.getItem(),
-                        1,
-                        player.getInventory()
-                    );
-                }
+                world.setBlockState(blockData.pos, blockData.state);
                 restored++;
             }
             
             data.clearLastOperation();
             final int finalRestored = restored;
-            source.sendFeedback(() -> Text.literal("§a[Area Mine] Restored " + finalRestored + " blocks!"), false);
+            final int finalRemovedEntities = removedEntities;
+            final int finalRemovedInventory = removedFromInventory;
+            source.sendFeedback(() -> Text.literal("§a[Area Mine] Restored " + finalRestored + " blocks! Removed " + 
+                finalRemovedEntities + " dropped items and " + finalRemovedInventory + " items from inventory."), false);
             
             return Command.SINGLE_SUCCESS;
         } catch (Exception e) {
             source.sendFeedback(() -> Text.literal("§c[Area Mine] Error: " + e.getMessage()), false);
+            e.printStackTrace();
             return 0;
         }
     }

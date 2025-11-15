@@ -23,70 +23,68 @@ public class MiningPattern {
         };
     }
     
-    // Original cube pattern (biased towards mining direction)
+    // Cube pattern - extends forward in the mining direction (biased cube)
+    // Layer 1: The broken block (already broken, so we skip it)
+    // Layer 2: One block forward
+    // Layer 3: Two blocks forward
     public static List<BlockPos> getCubePattern(BlockPos center, Direction face, 
                                                  int horizontal, int vertical, int depth) {
         List<BlockPos> blocks = new ArrayList<>();
         
-        Direction depthDir = face.getOpposite();
-        Direction.Axis depthAxis = depthDir.getAxis();
-        int depthOffset = switch (depthAxis) {
-            case X -> depthDir.getOffsetX();
-            case Y -> depthDir.getOffsetY();
-            case Z -> depthDir.getOffsetZ();
-        };
+        // The mining face is the direction the player is looking (the face of the block being mined)
+        // We want to extend forward in the direction the player is looking
+        Direction forward = face; // Face is the direction the player is looking
         
-        int minX = center.getX();
-        int maxX = center.getX();
-        int minY = center.getY();
-        int maxY = center.getY();
-        int minZ = center.getZ();
-        int maxZ = center.getZ();
-        
-        // Depth (biased extension into the block face)
-        int depthComp = switch (depthAxis) {
-            case X -> center.getX();
-            case Y -> center.getY();
-            case Z -> center.getZ();
-        };
-        int extend = depth - 1;
-        int depthEnd = depthComp + extend * depthOffset;
-        int depthMin = Math.min(depthComp, depthEnd);
-        int depthMax = Math.max(depthComp, depthEnd);
-        switch (depthAxis) {
-            case X -> { minX = depthMin; maxX = depthMax; }
-            case Y -> { minY = depthMin; maxY = depthMax; }
-            case Z -> { minZ = depthMin; maxZ = depthMax; }
+        // Get perpendicular directions for horizontal and vertical
+        Direction right, up;
+        if (face.getAxis() == Direction.Axis.Y) {
+            // Looking up/down
+            right = Direction.EAST;
+            up = Direction.NORTH;
+        } else {
+            right = face.rotateYClockwise();
+            up = Direction.UP;
         }
         
-        // Perpendicular axes (centered)
-        for (Direction.Axis perpAxis : Direction.Axis.values()) {
-            if (perpAxis == depthAxis) continue;
-            int pSize = (perpAxis == Direction.Axis.Y) ? vertical : horizontal;
-            int lower = getLower(pSize);
-            int upper = getUpper(pSize);
-            int pComp = switch (perpAxis) {
-                case X -> center.getX();
-                case Y -> center.getY();
-                case Z -> center.getZ();
-            };
-            int pMin = pComp + lower;
-            int pMax = pComp + upper;
-            switch (perpAxis) {
-                case X -> { minX = pMin; maxX = pMax; }
-                case Y -> { minY = pMin; maxY = pMax; }
-                case Z -> { minZ = pMin; maxZ = pMax; }
+        // Calculate centered ranges for horizontal and vertical (perpendicular to mining direction)
+        int hLower = getLower(horizontal);
+        int hUpper = getUpper(horizontal);
+        int vLower = getLower(vertical);
+        int vUpper = getUpper(vertical);
+        
+        // Depth extends forward: 0 (broken block, skip), 1, 2, ... depth-1
+        // For depth=3: we want layers at 0 (skip), 1, 2
+        for (int d = 0; d < depth; d++) {
+            // Skip layer 0 (the broken block)
+            if (d == 0) {
+                continue;
+            }
+            
+            // For each depth layer, create a horizontal x vertical grid
+            for (int h = hLower; h <= hUpper; h++) {
+                for (int v = vLower; v <= vUpper; v++) {
+                    BlockPos pos = center
+                        .offset(forward, d)  // Forward d blocks
+                        .offset(right, h)    // Horizontal offset
+                        .offset(up, v);       // Vertical offset
+                    
+                    blocks.add(pos);
+                }
             }
         }
         
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (!pos.equals(center)) {
-                        blocks.add(pos);
-                    }
+        // Also add the horizontal x vertical grid at layer 0 (the broken block's layer)
+        // But skip the center block itself
+        for (int h = hLower; h <= hUpper; h++) {
+            for (int v = vLower; v <= vUpper; v++) {
+                // Skip the center (0, 0)
+                if (h == 0 && v == 0) {
+                    continue;
                 }
+                BlockPos pos = center
+                    .offset(right, h)
+                    .offset(up, v);
+                blocks.add(pos);
             }
         }
         
@@ -118,7 +116,7 @@ public class MiningPattern {
     public static List<BlockPos> getTunnelPattern(BlockPos center, Direction face, 
                                                    int width, int height, int length) {
         List<BlockPos> blocks = new ArrayList<>();
-        Direction forward = face.getOpposite();
+        Direction forward = face; // Forward in the direction the player is looking
         
         // Get perpendicular directions
         Direction right, up;
@@ -137,17 +135,31 @@ public class MiningPattern {
         int heightLower = getLower(height);
         int heightUpper = getUpper(height);
         
-        for (int d = 0; d < length; d++) {
+        // Tunnel extends forward: skip layer 0 (broken block), then forward for length-1 layers
+        for (int d = 1; d < length; d++) {
             for (int w = widthLower; w <= widthUpper; w++) {
                 for (int h = heightLower; h <= heightUpper; h++) {
                     BlockPos pos = center
-                        .offset(forward, d)
-                        .offset(right, w)
-                        .offset(up, h);
-                    if (!pos.equals(center)) {
-                        blocks.add(pos);
-                    }
+                        .offset(forward, d)  // Forward d blocks
+                        .offset(right, w)    // Horizontal offset
+                        .offset(up, h);       // Vertical offset
+                    blocks.add(pos);
                 }
+            }
+        }
+        
+        // Also add the width x height grid at layer 0 (the broken block's layer)
+        // But skip the center block itself
+        for (int w = widthLower; w <= widthUpper; w++) {
+            for (int h = heightLower; h <= heightUpper; h++) {
+                // Skip the center (0, 0)
+                if (w == 0 && h == 0) {
+                    continue;
+                }
+                BlockPos pos = center
+                    .offset(right, w)
+                    .offset(up, h);
+                blocks.add(pos);
             }
         }
         
@@ -158,7 +170,7 @@ public class MiningPattern {
     public static List<BlockPos> getCrossPattern(BlockPos center, Direction face, 
                                                   int horizontal, int vertical, int depth) {
         List<BlockPos> blocks = new ArrayList<>();
-        Direction forward = face.getOpposite();
+        Direction forward = face; // Forward in the direction the player is looking
         
         // Mine forward
         for (int d = 1; d <= depth; d++) {

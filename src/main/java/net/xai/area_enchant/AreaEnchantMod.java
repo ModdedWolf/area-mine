@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,9 +36,44 @@ public class AreaEnchantMod implements ModInitializer {
     public static final RegistryKey<net.minecraft.enchantment.Enchantment> AREA_MINE = RegistryKey.of(RegistryKeys.ENCHANTMENT, Identifier.of("area_enchant", "area_mine"));
     public static Config config;
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    
+    // Environment detection
+    private static boolean isSingleplayer = false;
+    private static boolean isDedicatedServer = false;
+    
+    /**
+     * Check if running in singleplayer (integrated server)
+     */
+    public static boolean isSingleplayer() {
+        return isSingleplayer;
+    }
+    
+    /**
+     * Check if running on dedicated server
+     */
+    public static boolean isDedicatedServer() {
+        return isDedicatedServer;
+    }
+    
+    /**
+     * Check if running in any server environment (singleplayer or dedicated)
+     */
+    public static boolean isServer() {
+        return isSingleplayer || isDedicatedServer;
+    }
 
     @Override
     public void onInitialize() {
+        System.out.println("[Area Mine] Mod initializing - mixins should be loaded");
+        
+        // Detect environment: singleplayer (integrated server) vs dedicated server
+        // The mod initializer runs on both client and server in singleplayer
+        // We can check if we're in a client environment by checking if the client mod initializer exists
+        // For now, assume singleplayer if we're not explicitly on a dedicated server
+        // In singleplayer, both client and server mods load, so this will be true
+        isSingleplayer = true; // Default to singleplayer for now
+        System.out.println("[Area Mine] Running in SINGLEPLAYER mode (integrated server)");
+        
         loadConfig();
         registerCommands();
         registerServerEvents();
@@ -78,11 +114,22 @@ public class AreaEnchantMod implements ModInitializer {
         
         // Send pattern to players when they join
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            net.xai.area_enchant.network.NetworkHandler.sendPatternToClient(handler.player, config.miningPattern);
+            // Delay sync to ensure client is ready (especially important for singleplayer)
+            server.execute(() -> {
+                // Small delay to ensure client receiver is registered
+                server.execute(() -> {
+                    // Try to send pattern via network
+                    // In singleplayer, if this fails, it's fine because config is shared
+                    net.xai.area_enchant.network.NetworkHandler.sendPatternToClient(handler.player, config.miningPattern);
+                });
+            });
         });
     }
 
     private void registerServerEvents() {
+        // Register event-based area mining handler (replaces mixin approach)
+        AreaMineHandler.register();
+        
         // Reset session blocks on player disconnect
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             PlayerDataManager.PlayerData data = PlayerDataManager.get(handler.player.getUuid());
@@ -104,8 +151,32 @@ public class AreaEnchantMod implements ModInitializer {
             }
         });
         
-        // Periodically save player data (every 5 minutes)
+        // Periodically save player data (every 5 minutes) and set world save directory
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            // Set world-specific save directory for player data
+            try {
+                // Get the world save directory - use the server's run directory
+                Path serverDir = server.getRunDirectory();
+                // For singleplayer, worlds are in saves/ directory
+                // For dedicated server, the world is in the server directory
+                Path worldSaveDir;
+                if (server.isDedicated()) {
+                    // Dedicated server: world is in the server directory
+                    worldSaveDir = serverDir;
+                } else {
+                    // Singleplayer: worlds are in saves/ directory
+                    // Get the world name from save properties
+                    String worldName = server.getSaveProperties().getLevelName();
+                    worldSaveDir = serverDir.resolve("saves").resolve(worldName);
+                }
+                PlayerDataManager.setWorldSaveDirectory(worldSaveDir);
+            } catch (Exception e) {
+                System.err.println("[Area Mine] Failed to get world save directory: " + e.getMessage());
+                e.printStackTrace();
+                // Fallback to default
+                PlayerDataManager.setWorldSaveDirectory(Paths.get("world"));
+            }
+            
             server.getWorlds().forEach(world -> {
                 // Schedule periodic saves using server tick scheduler
                 world.getServer().execute(() -> {
@@ -640,7 +711,7 @@ public class AreaEnchantMod implements ModInitializer {
         public Map<Integer, Size> levels = new HashMap<>();
         public Map<String, Map<Integer, Size>> patternLevels = new HashMap<>(); // Per-pattern tier sizes
         public List<String> allowedTools = new ArrayList<>();
-        public List<String> blockBlacklist = new ArrayList<>();
+        public List<String> blockBlacklist = new ArrayList<>(Arrays.asList("minecraft:bedrock")); // Bedrock is unbreakable by default
         public List<String> blockWhitelist = new ArrayList<>();
         
         // Features

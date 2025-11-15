@@ -124,27 +124,56 @@ public class BatchedBlockBreaker {
                     undoData.addBlock(otherPos, blockState);
                 }
                 
-                // Get drops using Block.getDroppedStacks (respects Fortune, Silk Touch, etc.)
+                // Break blocks directly - use breakBlock which properly handles block breaking
+                // Get drops with enchantments (Fortune, Silk Touch, etc.) BEFORE breaking
                 List<ItemStack> drops = new ArrayList<>();
                 if (!player.isCreative()) {
                     drops.addAll(Block.getDroppedStacks(blockState, world, otherPos, 
                         world.getBlockEntity(otherPos), player, tool));
                 }
                 
-                // Break block
-                world.breakBlock(otherPos, false);
-                
-                // Add drops to inventory or drop in world
-                if (!player.isCreative()) {
-                    for (ItemStack drop : drops) {
-                        if (autoPickup) {
-                            if (!player.getInventory().insertStack(drop)) {
-                                Block.dropStack(world, otherPos, drop);
+                // Break the block using breakBlock which properly handles everything
+                boolean broken = world.breakBlock(otherPos, false);
+                if (broken) {
+                    // Trigger block break events
+                    blockState.onStacksDropped(world, otherPos, tool, !player.isCreative());
+                    
+                    // Handle drops (auto-pickup or drop in world)
+                    if (!player.isCreative()) {
+                        for (ItemStack drop : drops) {
+                            if (autoPickup) {
+                                ItemStack originalDrop = drop.copy();
+                                if (!player.getInventory().insertStack(drop)) {
+                                    // Inventory full, drop item
+                                    net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
+                                        world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
+                                    world.spawnEntity(itemEntity);
+                                    // Track dropped item entity for undo
+                                    if (AreaEnchantMod.config.enableUndo && undoData != null) {
+                                        undoData.addItemEntity(itemEntity.getUuid());
+                                    }
+                                } else {
+                                    // Item was added to inventory, track it for undo
+                                    if (AreaEnchantMod.config.enableUndo && undoData != null) {
+                                        String itemId = net.minecraft.registry.Registries.ITEM.getId(originalDrop.getItem()).toString();
+                                        undoData.addInventoryItem(itemId, originalDrop.getCount());
+                                    }
+                                }
+                            } else {
+                                // Drop item in world
+                                net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
+                                    world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
+                                world.spawnEntity(itemEntity);
+                                // Track dropped item entity for undo
+                                if (AreaEnchantMod.config.enableUndo && undoData != null) {
+                                    undoData.addItemEntity(itemEntity.getUuid());
+                                }
                             }
-                        } else {
-                            Block.dropStack(world, otherPos, drop);
                         }
                     }
+                } else {
+                    // Block couldn't be broken
+                    continue;
                 }
                 
                 blocksMined++;

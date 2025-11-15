@@ -18,6 +18,9 @@ public class AreaEnchantClientMod implements ClientModInitializer {
         });
         
         // Register network receiver for pattern sync
+        // This works in both multiplayer and singleplayer (integrated server)
+        // In singleplayer, the config is shared between client and server, so pattern sync
+        // will work automatically even if networking fails
         net.xai.area_enchant.network.NetworkHandler.registerClientReceiver();
         
         System.out.println("[Area Mine] Particle preview enabled!");

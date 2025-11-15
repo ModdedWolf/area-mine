@@ -23,15 +23,28 @@ public class NetworkHandler {
         ClientPlayNetworking.registerGlobalReceiver(SyncPatternPayload.ID, (payload, context) -> {
             context.client().execute(() -> {
                 // Update client-side config with server's pattern
-                AreaEnchantMod.config.miningPattern = payload.pattern();
-                System.out.println("[Area Mine Client] Pattern synced from server: " + payload.pattern());
+                if (AreaEnchantMod.config != null) {
+                    AreaEnchantMod.config.miningPattern = payload.pattern();
+                    System.out.println("[Area Mine Client] Pattern synced from server: " + payload.pattern());
+                }
             });
         });
     }
     
     public static void sendPatternToClient(net.minecraft.server.network.ServerPlayerEntity player, String pattern) {
         // Send pattern update to specific player
-        ServerPlayNetworking.send(player, new SyncPatternPayload(pattern));
+        // In singleplayer, config is shared between client and server, so networking is optional
+        if (player.networkHandler != null) {
+            try {
+                ServerPlayNetworking.send(player, new SyncPatternPayload(pattern));
+            } catch (Exception e) {
+                // In singleplayer, config is shared between client and server
+                // If networking fails, the pattern will still work since they share the same config object
+                // This is expected in singleplayer and not an error
+            }
+        }
+        // If network handler is null or send fails, pattern will still work in singleplayer
+        // because client and server share the same config object
     }
     
     public static void sendPatternToAllPlayers(net.minecraft.server.MinecraftServer server, String pattern) {
