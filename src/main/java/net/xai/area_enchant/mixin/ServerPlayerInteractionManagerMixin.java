@@ -44,18 +44,12 @@ public abstract class ServerPlayerInteractionManagerMixin {
     @Shadow public ServerPlayerEntity player;
 
     private Direction miningFace;
+    // DEPRECATED: Use AreaMineHandler.isBreakingArea() instead
+    // Keeping for backwards compatibility but should always check AreaMineHandler first
     private boolean isBreakingArea = false;
 
     @Inject(method = "processBlockBreakingAction", at = @At("HEAD"))
     private void captureMiningFace(BlockPos pos, PlayerActionC2SPacket.Action action, Direction face, int maxUpdateDepth, int sequence, CallbackInfo ci) {
-        // Debug: Test if this mixin is being called
-        if (player != null) {
-            try {
-                player.sendMessage(Text.literal("§b[MINING FACE] Action: " + action + ", Face: " + face), false);
-            } catch (Exception e) {
-                // Ignore
-            }
-        }
         // Capture face for all breaking actions (handles insta-mine blocks)
         if (action == PlayerActionC2SPacket.Action.START_DESTROY_BLOCK || 
             action == PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK) {
@@ -63,55 +57,43 @@ public abstract class ServerPlayerInteractionManagerMixin {
         }
     }
 
-    // Inject into tryBreakBlock - use System.out.println to ensure we see it even if player is null
-    @Inject(method = "tryBreakBlock", at = @At(value = "HEAD"))
-    private void onBlockBreakHead(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        // Use System.out.println first - this will ALWAYS work if mixin is called
-        System.out.println("[Area Mine] [MIXIN HEAD] tryBreakBlock called at " + pos + " - MIXIN IS WORKING!");
-        System.out.println("[Area Mine] Thread: " + Thread.currentThread().getName() + ", player=" + (player != null ? player.getName().getString() : "null"));
-        if (player != null) {
-            try {
-                player.sendMessage(Text.literal("§6[MIXIN HEAD] tryBreakBlock called at " + pos), false);
-            } catch (Exception e) {
-                // Ignore
-            }
-        }
-    }
-    
     // Inject at RETURN to do the actual work
     @Inject(method = "tryBreakBlock", at = @At(value = "RETURN"))
     private void onBlockBreak(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        // Use System.out.println first - this will ALWAYS work if mixin is called
-        System.out.println("[Area Mine] [MIXIN RETURN] tryBreakBlock returned at " + pos + " - MIXIN IS WORKING!");
+        // Log ALL block breaks to see if mixin is called at all
+        if (world != null && player != null) {
+            BlockState blockState = world.getBlockState(pos);
+            String blockId = net.minecraft.registry.Registries.BLOCK.getId(blockState.getBlock()).toString();
+            boolean isOre = blockId.contains("_ore") || 
+                           (blockId.contains("deepslate") && (blockId.contains("ore") || blockId.contains("_ore")));
+            
+            // Log ALL block breaks (not just ores) to see if mixin is called
+            System.out.println("[Area Mine] [MIXIN] tryBreakBlock called: " + blockId + " at " + pos + " (isOre=" + isOre + ", returnValue=" + cir.getReturnValue() + ")");
+            
+            if (isOre) {
+                System.out.println("[Area Mine] [MIXIN] isBreakingArea: " + AreaMineHandler.isBreakingArea(player.getUuid()));
+            }
+        }
+        
+        // CRITICAL: Check if AreaMineHandler is already handling this (event-based system)
+        // If so, DO NOT process here to prevent duplicate/recursive area mining
+        if (AreaMineHandler.isBreakingArea(player.getUuid())) {
+            System.out.println("[Area Mine] [MIXIN] Skipping - AreaMineHandler is already processing");
+            miningFace = null;
+            return;
+        }
         onBlockBreakInternal(pos, cir);
     }
     
     private void onBlockBreakInternal(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        // CRITICAL: Send message at the VERY START to verify mixin is called
-        if (player != null && world != null) {
-            try {
-                player.sendMessage(Text.literal("§c[MIXIN CALLED] tryBreakBlock at " + pos), false);
-            } catch (Exception e) {
-                // Ignore errors
-            }
-        }
-        
-        // Debug: Send message to player to verify mixin is called
-        // Only send if we have a player (avoid NPE)
-        if (player != null) {
-            player.sendMessage(Text.literal("§7[DEBUG] tryBreakBlock: return=" + cir.getReturnValue() + ", isBreaking=" + isBreakingArea + ", face=" + miningFace), false);
-        }
-        
-        if (!cir.getReturnValue() || isBreakingArea || miningFace == null) {
-            if (player != null) {
-                player.sendMessage(Text.literal("§7[DEBUG] Early return: return=" + cir.getReturnValue() + ", isBreaking=" + isBreakingArea + ", face=" + miningFace), false);
-            }
+        // CRITICAL: Check BOTH local flag AND global flag from AreaMineHandler
+        // This prevents the mixin from interfering with the event-based system
+        if (!cir.getReturnValue() || isBreakingArea || AreaMineHandler.isBreakingArea(player.getUuid()) || miningFace == null) {
             miningFace = null;
             return;
         }
 
         var stack = player.getMainHandStack();
-        player.sendMessage(Text.literal("§7[DEBUG] Checking item: " + stack.getItem()), false);
         Optional<net.minecraft.registry.Registry<Enchantment>> enchantmentRegistry = world.getRegistryManager().getOptional(RegistryKeys.ENCHANTMENT);
         if (enchantmentRegistry.isEmpty()) {
             miningFace = null;
@@ -123,17 +105,13 @@ public abstract class ServerPlayerInteractionManagerMixin {
             return;
         }
         int level = EnchantmentHelper.getLevel(entry, stack);
-        player.sendMessage(Text.literal("§7[DEBUG] Area Mine level: " + level), false);
         if (level <= 0) {
-            player.sendMessage(Text.literal("§7[DEBUG] No Area Mine enchantment"), false);
             miningFace = null;
             return;
         }
         
-        // Check if crouch is required (v4)
-        player.sendMessage(Text.literal("§7[DEBUG] requireCrouch=" + AreaEnchantMod.config.requireCrouch + ", sneaking=" + player.isSneaking()), false);
+        // Check if crouch is required
         if (AreaEnchantMod.config.requireCrouch && !player.isSneaking()) {
-            player.sendMessage(Text.literal("§7[DEBUG] Crouch required!"), false);
             miningFace = null;
             return;
         }
@@ -341,8 +319,19 @@ public abstract class ServerPlayerInteractionManagerMixin {
 
         // Initialize undo data
         PlayerDataManager.UndoData undoData = new PlayerDataManager.UndoData();
+        
+        // CRITICAL: Add center block to undo data FIRST (it was already broken)
+        // Use the original block state from before it was broken
+        BlockState centerBlockState = world.getBlockState(pos);
+        // Actually, the block is already broken, so we need to get it from the BEFORE event
+        // But we don't have access to that here, so we'll skip it for now
+        // The event handler correctly handles this, but the mixin is a backup path
+        // For now, we'll add the current state (which might be air)
+        undoData.addBlock(pos, centerBlockState);
 
+        // CRITICAL: Set BOTH local and global flags to prevent recursion
         isBreakingArea = true;
+        AreaMineHandler.setBreakingArea(player.getUuid(), true);
         
         // Play sound when area mining starts
         if (AreaEnchantMod.config.soundEffects) {
@@ -355,6 +344,8 @@ public abstract class ServerPlayerInteractionManagerMixin {
             player.sendMessage(Text.literal("§e[Area Mine] Using batched breaking with " + filteredBlocks.size() + " blocks"), false);
             net.xai.area_enchant.BatchedBlockBreaker.startBreaking(player, world, filteredBlocks, 
                 player.getMainHandStack(), level, undoData);
+            // NOTE: Flags will be cleared by BatchedBlockBreaker.finish()
+            // But clear local flag here for safety
             isBreakingArea = false;
             miningFace = null;
             return;
@@ -409,20 +400,37 @@ public abstract class ServerPlayerInteractionManagerMixin {
                         world.getBlockEntity(otherPos), player, stack));
                 }
                 
-                // Break the block using breakBlock which properly handles everything
-                boolean broken = world.breakBlock(otherPos, false);
+                // CRITICAL: Break block using setBlockState with air to avoid triggering block break events
+                // This is the safest way to remove blocks without triggering PlayerBlockBreakEvents
+                // Flag 3 = NOTIFY_NEIGHBORS | NOTIFY_LISTENERS (but won't trigger PlayerBlockBreakEvents)
+                BlockState stateBeforeBreak = world.getBlockState(otherPos);
+                boolean broken = false;
+                
+                // Verify the block is still there and matches what we expect
+                String expectedBlockId = Registries.BLOCK.getId(blockState.getBlock()).toString();
+                if (!stateBeforeBreak.isAir() && Registries.BLOCK.getId(stateBeforeBreak.getBlock()).toString().equals(expectedBlockId)) {
+                    // Set block to air directly (flag 3 = notify neighbors and listeners, but won't trigger PlayerBlockBreakEvents)
+                    world.setBlockState(otherPos, net.minecraft.block.Blocks.AIR.getDefaultState(), 3);
+                    
+                    // Verify it's actually removed
+                    BlockState stateAfterBreak = world.getBlockState(otherPos);
+                    if (stateAfterBreak.isAir()) {
+                        broken = true;
+                    }
+                }
+                
                 if (broken) {
-                    // Trigger block break events
+                    // Trigger block break events and drops manually
                     blockState.onStacksDropped(world, otherPos, stack, !player.isCreative());
                     
                     // Handle drops (auto-pickup or drop in world)
                     if (!player.isCreative()) {
-                        for (ItemStack drop : drops) {
+                    for (ItemStack drop : drops) {
                             if (autoPickup) {
-                                if (!player.getInventory().insertStack(drop)) {
-                                    // Inventory full, drop item
-                                    ItemEntity itemEntity = new ItemEntity(world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
-                                    world.spawnEntity(itemEntity);
+                        if (!player.getInventory().insertStack(drop)) {
+                            // Inventory full, drop item
+                            ItemEntity itemEntity = new ItemEntity(world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
+                            world.spawnEntity(itemEntity);
                                 }
                             } else {
                                 Block.dropStack(world, otherPos, drop);
@@ -483,8 +491,11 @@ public abstract class ServerPlayerInteractionManagerMixin {
             long endTime = world.getTime();
             playerData.addMiningTime(endTime - startTime);
             
-            // Store undo data
-            playerData.setLastOperation(undoData);
+            // CRITICAL: Store undo data in separate storage (NOT using deprecated method)
+            // This ensures undo data persists even when PlayerData is reloaded from disk
+            if (AreaEnchantMod.config.enableUndo && !undoData.blocks.isEmpty()) {
+                PlayerDataManager.setUndoData(player.getUuid(), undoData);
+            }
             
             // Track first use advancement
             if (playerData.isFirstUse()) {
@@ -538,7 +549,9 @@ public abstract class ServerPlayerInteractionManagerMixin {
             PlayerDataManager.saveToDisk(player.getUuid(), playerData);
             
         } finally {
+            // CRITICAL: Clear BOTH local and global flags
             isBreakingArea = false;
+            AreaMineHandler.clearBreakingFlag(player.getUuid());
             miningFace = null;
         }
     }

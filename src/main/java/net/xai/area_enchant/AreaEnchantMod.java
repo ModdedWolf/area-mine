@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public class AreaEnchantMod implements ModInitializer {
     public static final RegistryKey<net.minecraft.enchantment.Enchantment> AREA_MINE = RegistryKey.of(RegistryKeys.ENCHANTMENT, Identifier.of("area_enchant", "area_mine"));
@@ -132,9 +133,12 @@ public class AreaEnchantMod implements ModInitializer {
         
         // Reset session blocks on player disconnect
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            PlayerDataManager.PlayerData data = PlayerDataManager.get(handler.player.getUuid());
+            UUID playerId = handler.player.getUuid();
+            PlayerDataManager.PlayerData data = PlayerDataManager.get(playerId);
             data.resetSessionBlocks();
-            PlayerDataManager.saveToDisk(handler.player.getUuid(), data);
+            PlayerDataManager.saveToDisk(playerId, data);
+            // Clear pending ore breaks to prevent memory leaks
+            AreaMineHandler.clearPendingOreBreaks(playerId);
         });
         
         // Save player data when server stops
@@ -144,11 +148,13 @@ public class AreaEnchantMod implements ModInitializer {
             System.out.println("[Area Mine] Player data saved!");
         });
         
-        // Server tick event for batched block breaking
+        // Server tick event for batched block breaking and pending ore breaks
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(server -> {
             if (AreaEnchantMod.config.batchedBreaking) {
                 BatchedBlockBreaker.tick();
             }
+            // Process pending ore breaks (oreharvester bypasses AFTER event)
+            AreaMineHandler.processPendingOreBreaks();
         });
         
         // Periodically save player data (every 5 minutes) and set world save directory

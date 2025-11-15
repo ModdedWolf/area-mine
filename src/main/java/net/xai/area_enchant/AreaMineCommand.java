@@ -3,6 +3,7 @@ package net.xai.area_enchant;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.block.Block;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.ServerCommandSource;
@@ -96,8 +97,10 @@ public class AreaMineCommand {
         
         try {
             ServerPlayerEntity player = source.getPlayerOrThrow();
-            PlayerDataManager.PlayerData data = PlayerDataManager.get(player.getUuid());
-            PlayerDataManager.UndoData undoData = data.getLastOperation();
+            
+            // CRITICAL: Get undo data from separate storage (NOT from PlayerData)
+            // This ensures undo data persists even when PlayerData is reloaded from disk
+            PlayerDataManager.UndoData undoData = PlayerDataManager.getUndoData(player.getUuid());
             
             if (undoData == null || undoData.blocks.isEmpty()) {
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] No operation to undo!"), false);
@@ -106,7 +109,7 @@ public class AreaMineCommand {
             
             // Check if undo is too old (more than 5 minutes)
             if (System.currentTimeMillis() - undoData.timestamp > 300000) {
-                data.clearLastOperation();
+                PlayerDataManager.clearUndoData(player.getUuid());
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] Undo expired (too old)!"), false);
                 return 0;
             }
@@ -114,47 +117,272 @@ public class AreaMineCommand {
             net.minecraft.server.world.ServerWorld world = source.getWorld();
             
             // Remove item entities that were dropped on the ground
+            // CRITICAL: Track how many items of each type we remove as item entities
+            // This allows us to only remove the remainder from inventory
+            java.util.Map<String, Integer> removedAsEntities = new java.util.HashMap<>(); // item ID -> count removed
             int removedEntities = 0;
             for (java.util.UUID entityId : undoData.itemEntities) {
                 net.minecraft.entity.Entity entity = world.getEntity(entityId);
                 if (entity instanceof net.minecraft.entity.ItemEntity) {
+                    net.minecraft.entity.ItemEntity itemEntity = (net.minecraft.entity.ItemEntity) entity;
+                    String itemId = net.minecraft.registry.Registries.ITEM.getId(itemEntity.getStack().getItem()).toString();
+                    int count = itemEntity.getStack().getCount();
+                    
                     entity.remove(net.minecraft.entity.Entity.RemovalReason.DISCARDED);
                     removedEntities++;
+                    
+                    // Track how many of this item type we removed
+                    removedAsEntities.put(itemId, removedAsEntities.getOrDefault(itemId, 0) + count);
                 }
             }
             
-            // Remove items from player inventory (tracked items)
+            // Also search for item entities near restored block positions (in case items moved or weren't tracked)
+            // CRITICAL: Also search for items that match expected drops, even if they were dropped after being picked up
+            java.util.Set<net.minecraft.item.Item> expectedDropItems = new java.util.HashSet<>();
+            for (PlayerDataManager.UndoData.BlockStateData blockData : undoData.blocks) {
+                net.minecraft.block.Block block = blockData.state.getBlock();
+                net.minecraft.item.Item blockItem = block.asItem();
+                
+                if (blockItem != null && !blockItem.equals(net.minecraft.item.Items.AIR)) {
+                    expectedDropItems.add(blockItem);
+                    
+                    // Get actual drops for this block
+                    try {
+                        List<ItemStack> drops = Block.getDroppedStacks(
+                            blockData.state, world, blockData.pos, 
+                            world.getBlockEntity(blockData.pos), player, player.getMainHandStack()
+                        );
+                        for (ItemStack drop : drops) {
+                            expectedDropItems.add(drop.getItem());
+                        }
+                    } catch (Exception e) {
+                        // Ignore errors
+                    }
+                }
+            }
+            
+            // Search for item entities that match expected drops near any restored block
+            if (!expectedDropItems.isEmpty()) {
+                // Calculate bounding box for all restored blocks
+                int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+                int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+                for (PlayerDataManager.UndoData.BlockStateData blockData : undoData.blocks) {
+                    minX = Math.min(minX, blockData.pos.getX());
+                    minY = Math.min(minY, blockData.pos.getY());
+                    minZ = Math.min(minZ, blockData.pos.getZ());
+                    maxX = Math.max(maxX, blockData.pos.getX());
+                    maxY = Math.max(maxY, blockData.pos.getY());
+                    maxZ = Math.max(maxZ, blockData.pos.getZ());
+                }
+                
+                // Search within 5 blocks of the bounding box
+                net.minecraft.util.math.Box searchBox = new net.minecraft.util.math.Box(
+                    minX - 5, minY - 5, minZ - 5,
+                    maxX + 5, maxY + 5, maxZ + 5
+                );
+                
+                List<net.minecraft.entity.ItemEntity> nearbyItems = world.getEntitiesByClass(
+                    net.minecraft.entity.ItemEntity.class, searchBox, 
+                    itemEntity -> expectedDropItems.contains(itemEntity.getStack().getItem())
+                );
+                
+                for (net.minecraft.entity.ItemEntity itemEntity : nearbyItems) {
+                    // Only remove if not already tracked (to avoid double-removal)
+                    if (!undoData.itemEntities.contains(itemEntity.getUuid())) {
+                        String itemId = net.minecraft.registry.Registries.ITEM.getId(itemEntity.getStack().getItem()).toString();
+                        int count = itemEntity.getStack().getCount();
+                        
+                        itemEntity.remove(net.minecraft.entity.Entity.RemovalReason.DISCARDED);
+                        removedEntities++;
+                        
+                        // Track how many of this item type we removed
+                        removedAsEntities.put(itemId, removedAsEntities.getOrDefault(itemId, 0) + count);
+                    }
+                }
+            }
+                
+            // CRITICAL: Restore player's inventory to the state it was BEFORE breaking blocks
+            // This is the most accurate way to undo - restore exact inventory state
             int removedFromInventory = 0;
-            for (Map.Entry<String, Integer> entry : undoData.inventoryItems.entrySet()) {
-                String itemId = entry.getKey();
-                int count = entry.getValue();
+            if (undoData.inventoryBefore != null && !undoData.inventoryBefore.isEmpty()) {
+                // Count current inventory
+                java.util.Map<String, Integer> currentInventory = new java.util.HashMap<>();
+                for (int i = 0; i < player.getInventory().size(); i++) {
+                    ItemStack stack = player.getInventory().getStack(i);
+                    if (!stack.isEmpty()) {
+                        String itemId = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
+                        currentInventory.put(itemId, currentInventory.getOrDefault(itemId, 0) + stack.getCount());
+                    }
+                }
                 
-                net.minecraft.util.Identifier identifier = net.minecraft.util.Identifier.of(itemId);
-                net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(identifier);
+                // For each item type, remove the difference (current - before)
+                // This removes only items gained from breaking, preserving items the player had before
+                for (Map.Entry<String, Integer> entry : undoData.inventoryBefore.entrySet()) {
+                    String itemId = entry.getKey();
+                    int countBefore = entry.getValue();
+                    int currentCount = currentInventory.getOrDefault(itemId, 0);
+                    int toRemove = Math.max(0, currentCount - countBefore);
+                    
+                    if (toRemove > 0) {
+                        net.minecraft.util.Identifier identifier = net.minecraft.util.Identifier.of(itemId);
+                        net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(identifier);
+                        
+                        if (item != null) {
+                            // Remove excess items (items gained from breaking)
+                            int remainingToRemove = toRemove;
+                            for (int i = 0; i < player.getInventory().size() && remainingToRemove > 0; i++) {
+                                ItemStack stack = player.getInventory().getStack(i);
+                                if (stack.getItem() == item) {
+                                    int removeFromStack = Math.min(stack.getCount(), remainingToRemove);
+                                    stack.decrement(removeFromStack);
+                                    remainingToRemove -= removeFromStack;
+                                    removedFromInventory += removeFromStack;
+                                }
+                            }
+                        }
+                    }
+                }
                 
-                if (item != null) {
-                    int removed = 0;
-                    for (int i = 0; i < player.getInventory().size() && removed < count; i++) {
-                        ItemStack stack = player.getInventory().getStack(i);
-                        if (stack.getItem() == item) {
-                            int toRemove = Math.min(stack.getCount(), count - removed);
-                            stack.decrement(toRemove);
-                            removed += toRemove;
-                            removedFromInventory += toRemove;
+                // Also handle items that weren't in inventory before (new items from breaking)
+                for (Map.Entry<String, Integer> entry : currentInventory.entrySet()) {
+                    String itemId = entry.getKey();
+                    if (!undoData.inventoryBefore.containsKey(itemId)) {
+                        // This item wasn't in inventory before, remove all of it
+                        int toRemove = entry.getValue();
+                        net.minecraft.util.Identifier identifier = net.minecraft.util.Identifier.of(itemId);
+                        net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(identifier);
+                        
+                        if (item != null && toRemove > 0) {
+                            int remainingToRemove = toRemove;
+                            for (int i = 0; i < player.getInventory().size() && remainingToRemove > 0; i++) {
+                                ItemStack stack = player.getInventory().getStack(i);
+                                if (stack.getItem() == item) {
+                                    int removeFromStack = Math.min(stack.getCount(), remainingToRemove);
+                                    stack.decrement(removeFromStack);
+                                    remainingToRemove -= removeFromStack;
+                                    removedFromInventory += removeFromStack;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback: Use old method if inventoryBefore is not available
+                for (Map.Entry<String, Integer> entry : undoData.inventoryItems.entrySet()) {
+                    String itemId = entry.getKey();
+                    int expectedCount = entry.getValue();
+                    int alreadyRemovedAsEntities = removedAsEntities.getOrDefault(itemId, 0);
+                    int countToRemoveFromInventory = Math.max(0, expectedCount - alreadyRemovedAsEntities);
+                    
+                    if (countToRemoveFromInventory > 0) {
+                        net.minecraft.util.Identifier identifier = net.minecraft.util.Identifier.of(itemId);
+                        net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(identifier);
+                        
+                        if (item != null) {
+                            int removed = 0;
+                            for (int i = 0; i < player.getInventory().size() && removed < countToRemoveFromInventory; i++) {
+                                ItemStack stack = player.getInventory().getStack(i);
+                                if (stack.getItem() == item) {
+                                    int toRemove = Math.min(stack.getCount(), countToRemoveFromInventory - removed);
+                                    stack.decrement(toRemove);
+                                    removed += toRemove;
+                                    removedFromInventory += toRemove;
+                                }
+                            }
                         }
                     }
                 }
             }
             
-            // Restore blocks
+            // Restore blocks - MUST restore in reverse order to avoid issues
             int restored = 0;
-            for (PlayerDataManager.UndoData.BlockStateData blockData : undoData.blocks) {
-                // Restore the block
-                world.setBlockState(blockData.pos, blockData.state);
-                restored++;
+            
+            // Restore blocks in reverse order (last broken first) to avoid neighbor update issues
+            List<PlayerDataManager.UndoData.BlockStateData> blocksToRestore = 
+                new ArrayList<>(undoData.blocks);
+            java.util.Collections.reverse(blocksToRestore);
+            
+            for (PlayerDataManager.UndoData.BlockStateData blockData : blocksToRestore) {
+                try {
+                    // CRITICAL: For ores and other blocks, we need to properly restore the exact block state
+                    // This includes preserving block properties, block entities, and ensuring proper client sync
+                    String targetBlock = net.minecraft.registry.Registries.BLOCK.getId(blockData.state.getBlock()).toString();
+                    
+                    // Get current block state to check if we need to restore
+                    net.minecraft.block.BlockState currentState = world.getBlockState(blockData.pos);
+                    String currentBlock = net.minecraft.registry.Registries.BLOCK.getId(currentState.getBlock()).toString();
+                    
+                    // If it's already the correct block, check if state matches
+                    if (currentBlock.equals(targetBlock)) {
+                        // Check if states are equal (including properties)
+                        if (currentState.equals(blockData.state)) {
+                            // Already correct, skip
+                            restored++;
+                            continue;
+                        }
+                    }
+                    
+                    // CRITICAL: For ores in multiplayer, we need to ensure proper client-server synchronization
+                    // First, clear the block completely
+                    world.setBlockState(blockData.pos, net.minecraft.block.Blocks.AIR.getDefaultState(), 3);
+                    
+                    // CRITICAL: Set the block state with flag 3 (NOTIFY_NEIGHBORS | NOTIFY_LISTENERS)
+                    // Flag 3 ensures both server and client are notified, which is critical for multiplayer
+                    // For ores, we need to ensure the exact state is restored, including all properties
+                    world.setBlockState(blockData.pos, blockData.state, 3);
+                    
+                    // CRITICAL: Force a block update to ensure clients see the change
+                    // This is especially important in multiplayer where clients might have stale data
+                    // Update neighbors to ensure proper synchronization
+                    // Flag 3 in setBlockState already handles client synchronization, but we update neighbors too
+                    world.updateNeighbors(blockData.pos, blockData.state.getBlock());
+                    
+                    // Verify it was actually set
+                    net.minecraft.block.BlockState verifyState = world.getBlockState(blockData.pos);
+                    String verifyBlock = net.minecraft.registry.Registries.BLOCK.getId(verifyState.getBlock()).toString();
+                    
+                    // Check if block type matches (for ores, we need exact match)
+                    boolean isOre = targetBlock.contains("_ore") || 
+                                   (targetBlock.contains("deepslate") && (targetBlock.contains("ore") || targetBlock.contains("_ore")));
+                    if (verifyBlock.equals(targetBlock)) {
+                        // For ores and blocks with properties, verify the state matches
+                        // Some blocks might have different states but same block type
+                        if (verifyState.equals(blockData.state) || verifyState.getBlock() == blockData.state.getBlock()) {
+                            // Update neighbors to ensure proper block updates
+                            blockData.state.updateNeighbors(world, blockData.pos, 3);
+                            restored++;
+                        } else {
+                            // Block type matches but state differs - try to set exact state
+                            world.setBlockState(blockData.pos, blockData.state, 3);
+                            net.minecraft.block.BlockState finalVerify = world.getBlockState(blockData.pos);
+                            if (finalVerify.getBlock() == blockData.state.getBlock()) {
+                                blockData.state.updateNeighbors(world, blockData.pos, 3);
+                                restored++;
+                            }
+                        }
+                    } else {
+                        // Try alternative: use breakBlock then setBlockState
+                        try {
+                            // Break the block first
+                            world.breakBlock(blockData.pos, false);
+                            // Then set the state
+                            world.setBlockState(blockData.pos, blockData.state, 3);
+                            net.minecraft.block.BlockState retryVerify = world.getBlockState(blockData.pos);
+                            String retryBlock = net.minecraft.registry.Registries.BLOCK.getId(retryVerify.getBlock()).toString();
+                            if (retryBlock.equals(targetBlock)) {
+                                blockData.state.updateNeighbors(world, blockData.pos, 3);
+                                restored++;
+                            }
+                        } catch (Exception retryEx) {
+                            // Failed to restore block
+                        }
+                    }
+                } catch (Exception e) {
+                    // Exception restoring block
+                }
             }
             
-            data.clearLastOperation();
+            PlayerDataManager.clearUndoData(player.getUuid());
             final int finalRestored = restored;
             final int finalRemovedEntities = removedEntities;
             final int finalRemovedInventory = removedFromInventory;

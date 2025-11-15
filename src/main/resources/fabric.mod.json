@@ -12,7 +12,7 @@
     "client": ["net.xai.area_enchant.AreaEnchantClientMod"]
   },
   "mixins": ["area_enchant.mixins.json"],
-  "depends": {
+    "depends": {
     "fabricloader": ">=0.17.3",
     "minecraft": "~1.21.10",
     "java": ">=21"

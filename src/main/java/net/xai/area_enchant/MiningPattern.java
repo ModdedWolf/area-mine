@@ -23,17 +23,14 @@ public class MiningPattern {
         };
     }
     
-    // Cube pattern - extends forward in the mining direction (biased cube)
-    // Layer 1: The broken block (already broken, so we skip it)
-    // Layer 2: One block forward
-    // Layer 3: Two blocks forward
+    // Cube pattern - true centered cube around the broken block
+    // For 3x3x3: -1, 0, +1 in all directions (centered on broken block)
     public static List<BlockPos> getCubePattern(BlockPos center, Direction face, 
                                                  int horizontal, int vertical, int depth) {
         List<BlockPos> blocks = new ArrayList<>();
         
         // The mining face is the direction the player is looking (the face of the block being mined)
-        // We want to extend forward in the direction the player is looking
-        Direction forward = face; // Face is the direction the player is looking
+        Direction forward = face;
         
         // Get perpendicular directions for horizontal and vertical
         Direction right, up;
@@ -46,45 +43,32 @@ public class MiningPattern {
             up = Direction.UP;
         }
         
-        // Calculate centered ranges for horizontal and vertical (perpendicular to mining direction)
-        int hLower = getLower(horizontal);
-        int hUpper = getUpper(horizontal);
-        int vLower = getLower(vertical);
-        int vUpper = getUpper(vertical);
+        // For a 3x3x3 cube: we need exactly 3 blocks in each dimension
+        // The broken block is at the center of the first layer
+        // Horizontal: -1, 0, +1 (3 blocks centered)
+        // Vertical: -1, 0, +1 (3 blocks centered)
+        // Depth: 0, 1, 2 (3 layers forward from the broken block)
         
-        // Depth extends forward: 0 (broken block, skip), 1, 2, ... depth-1
-        // For depth=3: we want layers at 0 (skip), 1, 2
-        for (int d = 0; d < depth; d++) {
-            // Skip layer 0 (the broken block)
-            if (d == 0) {
-                continue;
-            }
-            
-            // For each depth layer, create a horizontal x vertical grid
+        int hLower = getLower(horizontal);  // For 3: -1
+        int hUpper = getUpper(horizontal);  // For 3: 1
+        int vLower = getLower(vertical);    // For 3: -1
+        int vUpper = getUpper(vertical);    // For 3: 1
+        int dLower = 0;                      // Start at the broken block layer
+        int dUpper = depth - 1;              // For 3: 0, 1, 2 (3 layers)
+        
+        // Create cube: exactly the specified dimensions
+        // NOTE: We include the center block in the pattern (27 blocks for 3x3x3)
+        // AreaMineHandler will skip the center block when breaking, so 26 blocks will be broken
+        for (int d = dLower; d <= dUpper; d++) {
             for (int h = hLower; h <= hUpper; h++) {
                 for (int v = vLower; v <= vUpper; v++) {
                     BlockPos pos = center
-                        .offset(forward, d)  // Forward d blocks
-                        .offset(right, h)    // Horizontal offset
-                        .offset(up, v);       // Vertical offset
+                        .offset(forward, d)  // Forward offset (0 = current layer, 1 = one forward, etc.)
+                        .offset(right, h)    // Horizontal offset (-1, 0, +1)
+                        .offset(up, v);       // Vertical offset (-1, 0, +1)
                     
-                    blocks.add(pos);
+                        blocks.add(pos);
                 }
-            }
-        }
-        
-        // Also add the horizontal x vertical grid at layer 0 (the broken block's layer)
-        // But skip the center block itself
-        for (int h = hLower; h <= hUpper; h++) {
-            for (int v = vLower; v <= vUpper; v++) {
-                // Skip the center (0, 0)
-                if (h == 0 && v == 0) {
-                    continue;
-                }
-                BlockPos pos = center
-                    .offset(right, h)
-                    .offset(up, v);
-                blocks.add(pos);
             }
         }
         
@@ -143,9 +127,9 @@ public class MiningPattern {
                         .offset(forward, d)  // Forward d blocks
                         .offset(right, w)    // Horizontal offset
                         .offset(up, h);       // Vertical offset
-                    blocks.add(pos);
+                        blocks.add(pos);
+                    }
                 }
-            }
         }
         
         // Also add the width x height grid at layer 0 (the broken block's layer)
@@ -252,4 +236,5 @@ public class MiningPattern {
         return size / 2;
     }
 }
+
 

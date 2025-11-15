@@ -4,7 +4,6 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
@@ -19,8 +18,47 @@ public class BatchedBlockBreaker {
     
     public static void startBreaking(ServerPlayerEntity player, ServerWorld world, List<BlockPos> blocks, 
                                     ItemStack tool, int level, PlayerDataManager.UndoData undoData) {
-        // Cancel any existing task for this player
-        cancelTask(player.getUuid());
+        // CRITICAL: Ensure flag is set BEFORE cancelling old task
+        // This prevents race conditions where block break events fire between cancel and start
+        // The flag should already be set by handleAreaMining(), but ensure it's set here too
+        if (!AreaMineHandler.isBreakingArea(player.getUuid())) {
+            AreaMineHandler.setBreakingArea(player.getUuid(), true);
+        }
+        
+        // Cancel any existing task for this player (but don't clear flag - we're starting a new one)
+        BreakingTask oldTask = activeTasks.remove(player.getUuid());
+        if (oldTask != null) {
+            oldTask.cancel();
+            // CRITICAL: Do NOT call finish() here - it would clear the flag
+            // Also, we've removed the task from activeTasks, so tick() won't call finish() on it
+            // The flag stays set for the new task
+            // NOTE: The old task's finish() should NOT be called because it's no longer in activeTasks
+        }
+        
+        // CRITICAL: Only save undo data if it has blocks and doesn't overwrite existing data
+        // This prevents recursive calls from clearing valid undo data
+        // CRITICAL: This also prevents ore vein mods from breaking connected ores and triggering new area mine events
+        // that would overwrite the undo data
+        System.out.println("[Area Mine] [BATCHED] startBreaking called with undo data: " + 
+            (undoData != null ? undoData.blocks.size() + " blocks" : "null"));
+        if (AreaEnchantMod.config.enableUndo && undoData != null && !undoData.blocks.isEmpty()) {
+            // Check if undo data already exists - if so, don't overwrite it
+            PlayerDataManager.UndoData existingUndo = PlayerDataManager.getUndoData(player.getUuid());
+            if (existingUndo != null && !existingUndo.blocks.isEmpty()) {
+                System.err.println("[Area Mine] [BATCHED] WARNING: Undo data already exists (" + existingUndo.blocks.size() + 
+                    " blocks), NOT overwriting. New data has " + undoData.blocks.size() + " blocks");
+                System.err.println("[Area Mine] [BATCHED] WARNING: This might be caused by ore vein mod breaking connected ores!");
+                // CRITICAL: Use the existing undo data instead - don't overwrite it
+                // This prevents ore vein mods from clearing undo data
+                undoData = existingUndo;
+            } else {
+                System.out.println("[Area Mine] [BATCHED] Saving undo data: " + undoData.blocks.size() + " blocks");
+                PlayerDataManager.setUndoData(player.getUuid(), undoData);
+            }
+        } else {
+            System.err.println("[Area Mine] [BATCHED] WARNING: Not saving undo data in startBreaking! enableUndo=" + 
+                AreaEnchantMod.config.enableUndo + ", undoData=" + (undoData != null ? undoData.blocks.size() + " blocks" : "null"));
+        }
         
         // Create new breaking task
         BreakingTask task = new BreakingTask(player, world, blocks, tool, level, undoData);
@@ -34,6 +72,9 @@ public class BatchedBlockBreaker {
         BreakingTask task = activeTasks.remove(playerId);
         if (task != null) {
             task.cancel();
+            // CRITICAL: Clear the flag when cancelling to prevent it from being stuck
+            // If a new task starts, it will set the flag again
+            AreaMineHandler.clearBreakingFlag(playerId);
         }
     }
     
@@ -80,13 +121,22 @@ public class BatchedBlockBreaker {
         }
         
         public void processNextBatch() {
-            if (cancelled || currentIndex >= blocks.size()) {
+            if (cancelled) {
+                // If cancelled, finish() should have been called by cancelTask()
+                // But if we get here, it means tick() found a cancelled task, so finish it
                 finish();
                 return;
             }
             
+            // CRITICAL: Check if we're already done BEFORE processing
+            if (currentIndex >= blocks.size()) {
+                finish();
+                return;
+            }
+            
+            // Continue processing until all blocks are broken or we hit the per-tick limit
             int batchSize = AreaEnchantMod.config.blocksPerTick;
-            int endIndex = Math.min(currentIndex + batchSize, blocks.size());
+            int processedThisTick = 0;
             
             PlayerDataManager.PlayerData playerData = PlayerDataManager.get(player.getUuid());
             
@@ -109,19 +159,67 @@ public class BatchedBlockBreaker {
             
             boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
             
-            for (int i = currentIndex; i < endIndex; i++) {
+            // Process blocks until we hit the batch size limit or run out of blocks
+            // CRITICAL: Only count successfully broken blocks towards the batch limit
+            // This ensures we actually break the intended number of blocks, not just process them
+            while (currentIndex < blocks.size() && processedThisTick < batchSize) {
+                int i = currentIndex;
                 BlockPos otherPos = blocks.get(i);
                 BlockState blockState = world.getBlockState(otherPos);
                 
+                // CRITICAL: Always increment currentIndex to move to next block
+                // But only increment processedThisTick if we actually broke a block
+                currentIndex++;
+                
                 if (blockState.isAir()) {
-                    continue;
+                    continue; // Skip air blocks, don't count towards batch limit
                 }
                 
-                String blockId = Registries.BLOCK.getId(blockState.getBlock()).toString();
+                String blockId = net.minecraft.registry.Registries.BLOCK.getId(blockState.getBlock()).toString();
                 
-                // Store for undo if enabled
-                if (AreaEnchantMod.config.enableUndo) {
-                    undoData.addBlock(otherPos, blockState);
+                // Final safety check: Never break unbreakable blocks (bedrock, etc.)
+                // This is a redundant check since we already filtered, but extra safety
+                float hardness = blockState.getHardness(world, otherPos);
+                if (hardness < 0 || blockId.equals("minecraft:bedrock") || 
+                    AreaEnchantMod.config.blockBlacklist.contains(blockId)) {
+                    continue; // Skip unbreakable blocks, don't count towards batch limit
+                }
+                
+                // Store for undo if enabled - CRITICAL: Save BEFORE breaking
+                // NOTE: Blocks should already be pre-added in AreaMineHandler, but add here as backup
+                if (AreaEnchantMod.config.enableUndo && undoData != null) {
+                    // Check if block is already in undo data (it should be pre-added)
+                    boolean alreadyAdded = undoData.blocks.stream().anyMatch(b -> b.pos.equals(otherPos));
+                    if (!alreadyAdded) {
+                        // CRITICAL: Get the block state RIGHT BEFORE breaking - this is critical for ores
+                        // Ore vein mods might have modified the block state between when we pre-added it and now
+                        // By getting the state right before breaking, we ensure we have the correct state
+                        // This is especially important if other mods process block break events and modify blocks
+                        BlockState stateToSave = world.getBlockState(otherPos);
+                        
+                        // CRITICAL: For ores, make sure we're getting the full state with all properties
+                        // Some ores have properties that need to be preserved (like deepslate_iron_ore vs iron_ore)
+                        // If an ore vein mod modified the block, we want to save the CURRENT state, not the old one
+                        undoData.addBlock(otherPos, stateToSave);
+                    } else {
+                        // Block is already in undo data, but CRITICAL: Re-check state if it's an ore
+                        // Ore vein mods might have modified the block state after we saved it
+                        // For ores, we should update the saved state to match the current state
+                        String currentBlockId = net.minecraft.registry.Registries.BLOCK.getId(blockState.getBlock()).toString();
+                        boolean isOre = currentBlockId.contains("_ore") || 
+                                       (currentBlockId.contains("deepslate") && (currentBlockId.contains("ore") || currentBlockId.contains("_ore")));
+                        
+                        if (isOre) {
+                            // For ores, re-check the state right before breaking
+                            // This ensures we have the correct state even if an ore vein mod modified it
+                            BlockState currentState = world.getBlockState(otherPos);
+                            // Update the saved state if it's different
+                            undoData.blocks.stream()
+                                .filter(b -> b.pos.equals(otherPos))
+                                .findFirst()
+                                .ifPresent(b -> b.state = currentState);
+                        }
+                    }
                 }
                 
                 // Break blocks directly - use breakBlock which properly handles block breaking
@@ -132,34 +230,79 @@ public class BatchedBlockBreaker {
                         world.getBlockEntity(otherPos), player, tool));
                 }
                 
-                // Break the block using breakBlock which properly handles everything
-                boolean broken = world.breakBlock(otherPos, false);
+                // CRITICAL: Break block using setBlockState with air to avoid triggering block break events
+                // This is the safest way to remove blocks without triggering PlayerBlockBreakEvents
+                // Flag 3 = NOTIFY_NEIGHBORS | NOTIFY_LISTENERS (but won't trigger PlayerBlockBreakEvents)
+                boolean broken = false;
+                BlockState stateBeforeBreak = world.getBlockState(otherPos);
+                
+                // Verify the block is still there and matches what we expect
+                if (!stateBeforeBreak.isAir() && net.minecraft.registry.Registries.BLOCK.getId(stateBeforeBreak.getBlock()).toString().equals(blockId)) {
+                    // Set block to air directly (flag 3 = notify neighbors and listeners, but won't trigger PlayerBlockBreakEvents)
+                    // This is the safest way to remove blocks programmatically
+                    world.setBlockState(otherPos, net.minecraft.block.Blocks.AIR.getDefaultState(), 3);
+                
+                    // Verify it's actually removed
+                    BlockState stateAfterBreak = world.getBlockState(otherPos);
+                    if (stateAfterBreak.isAir()) {
+                        broken = true;
+                    } else {
+                        System.err.println("[Area Mine] WARNING: setBlockState failed! Block still there: " + 
+                            net.minecraft.registry.Registries.BLOCK.getId(stateAfterBreak.getBlock()));
+                        broken = false;
+                    }
+                } else {
+                    broken = false;
+                }
+                
                 if (broken) {
-                    // Trigger block break events
+                    // Trigger block break events and drops manually
                     blockState.onStacksDropped(world, otherPos, tool, !player.isCreative());
                     
+                    blocksMined++;
+                    String blockIdStr = blockId;
+                    blockCounts.put(blockIdStr, blockCounts.getOrDefault(blockIdStr, 0) + 1);
+                    processedThisTick++; // CRITICAL: Only count successfully broken blocks towards batch limit
+                    
                     // Handle drops (auto-pickup or drop in world)
-                    if (!player.isCreative()) {
-                        for (ItemStack drop : drops) {
-                            if (autoPickup) {
+                if (!player.isCreative()) {
+                    for (ItemStack drop : drops) {
+                        if (autoPickup) {
                                 ItemStack originalDrop = drop.copy();
-                                if (!player.getInventory().insertStack(drop)) {
-                                    // Inventory full, drop item
-                                    net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
-                                        world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
-                                    world.spawnEntity(itemEntity);
-                                    // Track dropped item entity for undo
-                                    if (AreaEnchantMod.config.enableUndo && undoData != null) {
-                                        undoData.addItemEntity(itemEntity.getUuid());
-                                    }
-                                } else {
-                                    // Item was added to inventory, track it for undo
+                                int originalCount = originalDrop.getCount();
+                                
+                                // Try to insert - this modifies drop in place
+                                boolean fullyInserted = player.getInventory().insertStack(drop);
+                                
+                                if (fullyInserted) {
+                                    // All items were added to inventory
                                     if (AreaEnchantMod.config.enableUndo && undoData != null) {
                                         String itemId = net.minecraft.registry.Registries.ITEM.getId(originalDrop.getItem()).toString();
-                                        undoData.addInventoryItem(itemId, originalDrop.getCount());
+                                        undoData.addInventoryItem(itemId, originalCount);
                                     }
-                                }
-                            } else {
+                                } else {
+                                    // Some or all items couldn't fit - drop the remainder
+                                    int insertedCount = originalCount - drop.getCount();
+                                    int droppedCount = drop.getCount();
+                                    
+                                    // Track what was inserted
+                                    if (insertedCount > 0 && AreaEnchantMod.config.enableUndo && undoData != null) {
+                                        String itemId = net.minecraft.registry.Registries.ITEM.getId(originalDrop.getItem()).toString();
+                                        undoData.addInventoryItem(itemId, insertedCount);
+                                    }
+                                    
+                                    // Drop the remainder
+                                    if (droppedCount > 0) {
+                                        net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
+                                            world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
+                                        world.spawnEntity(itemEntity);
+                                        // Track dropped item entity for undo
+                                        if (AreaEnchantMod.config.enableUndo && undoData != null) {
+                                            undoData.addItemEntity(itemEntity.getUuid());
+                                        }
+                                    }
+                            }
+                        } else {
                                 // Drop item in world
                                 net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
                                     world, otherPos.getX() + 0.5, otherPos.getY() + 0.5, otherPos.getZ() + 0.5, drop);
@@ -167,28 +310,29 @@ public class BatchedBlockBreaker {
                                 // Track dropped item entity for undo
                                 if (AreaEnchantMod.config.enableUndo && undoData != null) {
                                     undoData.addItemEntity(itemEntity.getUuid());
-                                }
-                            }
                         }
                     }
-                } else {
-                    // Block couldn't be broken
-                    continue;
                 }
-                
-                blocksMined++;
-                blockCounts.put(blockId, blockCounts.getOrDefault(blockId, 0) + 1);
+                    }
+                } else {
+                    // Block couldn't be broken - log it but continue
+                    // CRITICAL: Don't count failed breaks towards batch limit
+                    BlockState currentState = world.getBlockState(otherPos);
+                    String currentBlockId = net.minecraft.registry.Registries.BLOCK.getId(currentState.getBlock()).toString();
+                    // If block is already air, that's fine - it was probably broken by something else
+                    // But if it's still the same block, that's a problem
+                    if (!currentState.isAir() && currentBlockId.equals(blockId)) {
+                        System.err.println("[Area Mine] CRITICAL: Block at " + otherPos + " failed to break! This should not happen!");
+                    }
+                    // Don't increment processedThisTick - failed breaks don't count towards batch limit
+                }
             }
             
             // Apply durability ONCE for this batch (not per block!)
-            if (!player.isCreative() && tool.isDamageable()) {
-                // Count actual blocks mined in this batch (not indices!)
-                int actualBlocksMinedInBatch = 0;
-                for (int i = currentIndex; i < endIndex; i++) {
-                    if (i < blocks.size() && !world.getBlockState(blocks.get(i)).isAir()) {
-                        actualBlocksMinedInBatch++;
-                    }
-                }
+            // NOTE: processedThisTick now only counts successfully broken blocks
+            if (!player.isCreative() && tool.isDamageable() && processedThisTick > 0) {
+                // Use the number of blocks actually broken this tick (processedThisTick now only counts successful breaks)
+                int actualBlocksMinedInBatch = processedThisTick;
                 
                 if (actualBlocksMinedInBatch > 0) {
                     double totalDurabilityFraction = actualBlocksMinedInBatch * durabilityMultiplier;
@@ -214,12 +358,52 @@ public class BatchedBlockBreaker {
                         cancelled = true;
                     }
                 }
+                // NOTE: currentIndex is already incremented at the start of the loop
+                // processedThisTick is only incremented when blocks are successfully broken
             }
             
-            currentIndex = endIndex;
+            // If we've processed all blocks, finish
+            if (currentIndex >= blocks.size()) {
+                finish();
+            }
         }
         
         private void finish() {
+            // CRITICAL: Clear the isBreakingArea flag FIRST to prevent re-entry
+            // This must be done before any other operations to prevent block break events
+            // from triggering new area mine events while we're still processing
+            AreaMineHandler.clearBreakingFlag(player.getUuid());
+            
+            // CRITICAL: Save undo data FIRST, before updating stats
+            // This ensures undo data is always saved, even if stats update fails
+            System.out.println("[Area Mine] [BATCHED] finish() called, undo data: " + 
+                (undoData != null ? undoData.blocks.size() + " blocks" : "null"));
+            if (AreaEnchantMod.config.enableUndo && undoData != null && !undoData.blocks.isEmpty()) {
+                // Save to storage
+                System.out.println("[Area Mine] [BATCHED] Saving undo data in finish(): " + undoData.blocks.size() + " blocks");
+                PlayerDataManager.setUndoData(player.getUuid(), undoData);
+                
+                // Immediately verify it was saved
+                PlayerDataManager.UndoData verifyData = PlayerDataManager.getUndoData(player.getUuid());
+                if (verifyData == null) {
+                    System.err.println("[Area Mine] [BATCHED] CRITICAL: Undo data was NOT saved! Retrying...");
+                    // Retry saving
+                    PlayerDataManager.setUndoData(player.getUuid(), undoData);
+                    verifyData = PlayerDataManager.getUndoData(player.getUuid());
+                    if (verifyData == null) {
+                        System.err.println("[Area Mine] [BATCHED] CRITICAL: Undo data save FAILED after retry!");
+                    } else {
+                        System.out.println("[Area Mine] [BATCHED] Undo data saved successfully after retry: " + verifyData.blocks.size() + " blocks");
+                    }
+                } else {
+                    System.out.println("[Area Mine] [BATCHED] Undo data verified: " + verifyData.blocks.size() + " blocks");
+                }
+            } else if (AreaEnchantMod.config.enableUndo && (undoData == null || undoData.blocks.isEmpty())) {
+                System.err.println("[Area Mine] [BATCHED] WARNING: Undo data not saved in finish()! enableUndo=" + 
+                    AreaEnchantMod.config.enableUndo + ", undoData=" + (undoData != null ? "exists" : "null") + 
+                    ", blocks=" + (undoData != null ? undoData.blocks.size() : 0));
+            }
+            
             if (blocksMined > 0) {
                 PlayerDataManager.PlayerData playerData = PlayerDataManager.get(player.getUuid());
                 
@@ -229,11 +413,6 @@ public class BatchedBlockBreaker {
                     playerData.addBlockTypeStats(entry.getKey(), entry.getValue());
                 }
                 playerData.addDimensionStats(dimensionId, blocksMined);
-                
-                // Save undo data
-                if (AreaEnchantMod.config.enableUndo) {
-                    playerData.setLastOperation(undoData);
-                }
                 
                 // Calculate mining time
                 long endTime = world.getTime();
@@ -302,7 +481,8 @@ public class BatchedBlockBreaker {
         
         public void cancel() {
             cancelled = true;
-            finish();
+            // NOTE: finish() is called by cancelTask() after setting cancelled
+            // This ensures the flag is cleared when a task is cancelled
         }
         
         public boolean isFinished() {
