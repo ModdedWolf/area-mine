@@ -10,6 +10,11 @@ public class BlockFilter {
     public static boolean shouldMineBlock(BlockState blockState, AreaEnchantMod.Config config) {
         String blockId = Registries.BLOCK.getId(blockState.getBlock()).toString();
         
+        // Never allow Area Mine to break liquids (lava, water)
+        if (blockId.equals("minecraft:lava") || blockId.equals("minecraft:water")) {
+            return false;
+        }
+        
         // v4: Check if pickaxe-effective only mode is enabled
         if (config.pickaxeEffectiveOnly && !isPickaxeEffective(blockState, blockId)) {
             return false;

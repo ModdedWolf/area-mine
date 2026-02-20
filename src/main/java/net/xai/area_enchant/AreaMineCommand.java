@@ -19,7 +19,12 @@ public class AreaMineCommand {
         ServerCommandSource source = context.getSource();
         
         try {
-            AreaEnchantMod.reloadConfig();
+            // Use server's config path when in-game so singleplayer and multiplayer reload correctly
+            if (source.getServer() != null) {
+                AreaEnchantMod.loadConfigFromServer(source.getServer());
+            } else {
+                AreaEnchantMod.reloadConfig();
+            }
             source.sendFeedback(() -> Text.literal("§a[Area Mine] Config reloaded successfully!"), true);
             return Command.SINGLE_SUCCESS;
         } catch (Exception e) {
@@ -464,6 +469,68 @@ public class AreaMineCommand {
         return Command.SINGLE_SUCCESS;
     }
     
+    /**
+     * Toggle crouch requirement (for /areamine crouch with no subcommand).
+     */
+    public static int crouchToggle(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet. Try again in a moment."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.requireCrouch = !AreaEnchantMod.config.requireCrouch;
+            AreaEnchantMod.saveConfig(source.getServer());
+            boolean enabled = AreaEnchantMod.config.requireCrouch;
+            if (enabled) {
+                source.sendFeedback(() -> Text.literal("§a[Area Mine] Crouch requirement §aENABLED§f. Players must sneak to use Area Mine."), true);
+            } else {
+                source.sendFeedback(() -> Text.literal("§e[Area Mine] Crouch requirement §cDISABLED§f. Players no longer need to sneak to use Area Mine."), true);
+            }
+            return Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error changing crouch setting: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
+    public static int crouchEnable(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet. Try again in a moment."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.requireCrouch = true;
+            AreaEnchantMod.saveConfig(source.getServer());
+            source.sendFeedback(() -> Text.literal("§a[Area Mine] Crouch requirement §aENABLED§f. Players must sneak to use Area Mine."), true);
+            return Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error changing crouch setting: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
+    public static int crouchDisable(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet. Try again in a moment."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.requireCrouch = false;
+            AreaEnchantMod.saveConfig(source.getServer());
+            source.sendFeedback(() -> Text.literal("§e[Area Mine] Crouch requirement §cDISABLED§f. Players no longer need to sneak to use Area Mine."), true);
+            return Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error changing crouch setting: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
     public static int upgrade(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
         
@@ -586,8 +653,8 @@ public class AreaMineCommand {
             // Update config
             AreaEnchantMod.config.miningPattern = pattern;
             
-            // Save config to disk
-            AreaEnchantMod.saveConfig();
+            // Save config to disk (use server path for singleplayer/multiplayer)
+            AreaEnchantMod.saveConfig(source.getServer());
             
             // Sync pattern to all online players
             net.xai.area_enchant.network.NetworkHandler.sendPatternToAllPlayers(source.getServer(), pattern);

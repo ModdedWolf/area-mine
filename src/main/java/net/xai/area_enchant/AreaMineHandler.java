@@ -346,6 +346,16 @@ public class AreaMineHandler {
             return;
         }
         
+        // If tool has a conflicting enchantment (e.g. Silk Touch), disable Area Mine entirely
+        if (!AreaEnchantMod.config.enchantmentConflicts.isEmpty()) {
+            for (String conflictId : AreaEnchantMod.config.enchantmentConflicts) {
+                var conflictEntry = enchantmentRegistry.get().getEntry(Identifier.of(conflictId));
+                if (conflictEntry.isPresent() && EnchantmentHelper.getLevel(conflictEntry.get(), stack) > 0) {
+                    return;
+                }
+            }
+        }
+        
         // Check if crouch is required
         if (AreaEnchantMod.config.requireCrouch && !player.isSneaking()) {
             return;

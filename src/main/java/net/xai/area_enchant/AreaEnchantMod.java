@@ -14,6 +14,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
@@ -165,6 +166,10 @@ public class AreaEnchantMod implements ModInitializer {
         
         // Periodically save player data (every 5 minutes) and set world save directory
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            // Reload config from server's run directory so singleplayer and multiplayer
+            // use the correct config path (fixes /areamine crouch and manual config edits)
+            loadConfigFromServer(server);
+            
             // CRITICAL: Reset world directory tracking on every server start
             // This ensures we always detect the world correctly, even if the static variable persisted
             PlayerDataManager.resetWorldDirectoryTracking();
@@ -195,6 +200,12 @@ public class AreaEnchantMod implements ModInitializer {
     
     private void registerCommands() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            // Register for both integrated (singleplayer) and dedicated server so commands show in all environments
+            if (environment != CommandManager.RegistrationEnvironment.INTEGRATED
+                    && environment != CommandManager.RegistrationEnvironment.DEDICATED
+                    && environment != CommandManager.RegistrationEnvironment.ALL) {
+                return;
+            }
             dispatcher.register(CommandManager.literal("areamine")
                 .then(CommandManager.literal("reload")
                     .requires(source -> source.hasPermissionLevel(2))
@@ -219,6 +230,16 @@ public class AreaEnchantMod implements ModInitializer {
                 )
                 .then(CommandManager.literal("undo")
                     .executes(AreaMineCommand::undo)
+                )
+                .then(CommandManager.literal("crouch")
+                    .requires(source -> source.hasPermissionLevel(0))
+                    .executes(AreaMineCommand::crouchToggle)
+                    .then(CommandManager.literal("enable")
+                        .executes(AreaMineCommand::crouchEnable)
+                    )
+                    .then(CommandManager.literal("disable")
+                        .executes(AreaMineCommand::crouchDisable)
+                    )
                 )
                 .then(CommandManager.literal("leaderboard")
                     .then(CommandManager.argument("type", com.mojang.brigadier.arguments.StringArgumentType.word())
@@ -342,6 +363,38 @@ public class AreaEnchantMod implements ModInitializer {
         loadConfig();
     }
     
+    /**
+     * Reload config from the server's run directory. Use this when a server is
+     * available so singleplayer and multiplayer both use the correct config path.
+     */
+    public static void loadConfigFromServer(MinecraftServer server) {
+        if (server == null) {
+            loadConfig();
+            return;
+        }
+        Path configDir = server.getRunDirectory().resolve("config").resolve("area-mine");
+        loadConfigAt(configDir);
+    }
+    
+    /**
+     * Save config to the server's run directory. Use this from commands so
+     * singleplayer and multiplayer both persist to the correct config path.
+     */
+    public static void saveConfig(MinecraftServer server) {
+        if (server == null) {
+            saveConfig();
+            return;
+        }
+        try {
+            Path configDir = server.getRunDirectory().resolve("config").resolve("area-mine");
+            Files.createDirectories(configDir);
+            Path configPath = configDir.resolve("config.json");
+            Files.writeString(configPath, gson.toJson(config));
+        } catch (IOException e) {
+            System.err.println("[Area Mine] Failed to save config: " + e.getMessage());
+        }
+    }
+    
     public static void saveConfig() {
         try {
             Path configDir = Paths.get("config/area-mine");
@@ -354,6 +407,10 @@ public class AreaEnchantMod implements ModInitializer {
 
     private static void loadConfig() {
         Path configDir = Paths.get("config/area-mine");
+        loadConfigAt(configDir);
+    }
+    
+    private static void loadConfigAt(Path configDir) {
         Path configPath = configDir.resolve("config.json");
 
         if (Files.exists(configPath)) {
@@ -470,6 +527,16 @@ public class AreaEnchantMod implements ModInitializer {
         // Add Silk Touch to conflicts if not already present
         if (!oldConfig.enchantmentConflicts.contains("minecraft:silk_touch")) {
             oldConfig.enchantmentConflicts.add("minecraft:silk_touch");
+        }
+        
+        // Add lava and water to blacklist so Area Mine never breaks liquids
+        if (oldConfig.blockBlacklist != null) {
+            if (!oldConfig.blockBlacklist.contains("minecraft:lava")) {
+                oldConfig.blockBlacklist.add("minecraft:lava");
+            }
+            if (!oldConfig.blockBlacklist.contains("minecraft:water")) {
+                oldConfig.blockBlacklist.add("minecraft:water");
+            }
         }
         
         // Update config version
@@ -639,6 +706,9 @@ public class AreaEnchantMod implements ModInitializer {
         defaultConfig.allowedTools.add("minecraft:diamond_pickaxe");
         defaultConfig.allowedTools.add("minecraft:netherite_pickaxe");
         
+        if (!defaultConfig.blockBlacklist.contains("minecraft:lava")) defaultConfig.blockBlacklist.add("minecraft:lava");
+        if (!defaultConfig.blockBlacklist.contains("minecraft:water")) defaultConfig.blockBlacklist.add("minecraft:water");
+        
         // Feature defaults (keep current behavior)
         defaultConfig.autoPickup = false;
         defaultConfig.veinMiningMode = false;
@@ -763,7 +833,7 @@ public class AreaEnchantMod implements ModInitializer {
         public Map<Integer, Size> levels = new HashMap<>();
         public Map<String, Map<Integer, Size>> patternLevels = new HashMap<>(); // Per-pattern tier sizes
         public List<String> allowedTools = new ArrayList<>();
-        public List<String> blockBlacklist = new ArrayList<>(Arrays.asList("minecraft:bedrock")); // Bedrock is unbreakable by default
+        public List<String> blockBlacklist = new ArrayList<>(Arrays.asList("minecraft:bedrock", "minecraft:lava", "minecraft:water")); // Bedrock and liquids
         public List<String> blockWhitelist = new ArrayList<>();
         
         // Features
