@@ -531,6 +531,74 @@ public class AreaMineCommand {
         }
     }
     
+    public static int simpleModeStatus(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
+                return 0;
+            }
+            boolean on = AreaEnchantMod.config.simpleMode;
+            source.sendFeedback(() -> Text.literal("§e[Area Mine] Simple mode: " + (on ? "§aON§e (cube only, no tokens, no upgrades)" : "§cOFF")), false);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
+    public static int simpleModeEnable(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.simpleMode = true;
+            AreaEnchantMod.saveConfig(source.getServer());
+            source.sendFeedback(() -> Text.literal("§a[Area Mine] Simple mode §aENABLED§f. Cube only, no tokens, no upgrades."), true);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
+    public static int simpleModeDisable(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.simpleMode = false;
+            AreaEnchantMod.saveConfig(source.getServer());
+            source.sendFeedback(() -> Text.literal("§e[Area Mine] Simple mode §cDISABLED§f. Full features restored."), true);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
+    public static int simpleModeToggle(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            if (AreaEnchantMod.config == null) {
+                source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
+                return 0;
+            }
+            AreaEnchantMod.config.simpleMode = !AreaEnchantMod.config.simpleMode;
+            AreaEnchantMod.saveConfig(source.getServer());
+            boolean on = AreaEnchantMod.config.simpleMode;
+            source.sendFeedback(() -> Text.literal((on ? "§a[Area Mine] Simple mode ON." : "§e[Area Mine] Simple mode OFF.")), true);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        } catch (Exception e) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] Error: " + e.getMessage()), false);
+            return 0;
+        }
+    }
+    
     public static int upgrade(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
         

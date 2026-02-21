@@ -199,9 +199,9 @@ public abstract class ServerPlayerInteractionManagerMixin {
             return;
         }
         
-            // Check if player has unlocked the current pattern
-            String currentPattern = AreaEnchantMod.config.miningPattern;
-            if (!playerData.hasPattern(currentPattern)) {
+            // Pattern: simple mode = cube only; otherwise require unlock
+            String currentPattern = AreaEnchantMod.config.simpleMode ? "cube" : AreaEnchantMod.config.miningPattern;
+            if (!AreaEnchantMod.config.simpleMode && !playerData.hasPattern(currentPattern)) {
                 player.sendMessage(Text.literal("§c[Area Mine] You haven't unlocked the " + currentPattern + " pattern! Use /areamine patterns"), false);
                 miningFace = null;
                 return;
@@ -233,11 +233,11 @@ public abstract class ServerPlayerInteractionManagerMixin {
         int verticalSize = sizeConfig.vertical;
         int depthSize = sizeConfig.depth;
         
-        // Apply radius boost upgrade
-        if (playerData.hasUpgrade("radius_boost")) {
-            horizontalSize++;
-            verticalSize++;
-            depthSize++;
+        // Apply radius boost upgrade (no upgrades in simple mode)
+        if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+            horizontalSize += 2;
+            verticalSize += 2;
+            depthSize += 2;
         }
 
         // Get blocks to mine using the selected pattern
@@ -365,8 +365,8 @@ public abstract class ServerPlayerInteractionManagerMixin {
             durabilityMultiplier *= (1.0 - (unbreakingLevel * AreaEnchantMod.config.unbreakingDurabilityReduction));
         }
         
-        // Check if auto-pickup is enabled (config or upgrade)
-        boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
+        // Check if auto-pickup is enabled (config or upgrade; no upgrade in simple mode)
+        boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
         
         try {
             for (BlockPos otherPos : filteredBlocks) {
@@ -465,8 +465,8 @@ public abstract class ServerPlayerInteractionManagerMixin {
                 playerData.addBlockTypeStats(blockEntry.getKey(), blockEntry.getValue());
             }
             
-            // Award mining tokens
-            if (AreaEnchantMod.config.enableUpgradeSystem) {
+            // Award mining tokens (no tokens in simple mode)
+            if (AreaEnchantMod.config.enableUpgradeSystem && !AreaEnchantMod.config.simpleMode) {
                 // Calculate base tokens using block values
                 int tokensEarned = calculateTokensFromBlocks(blockCounts);
                 
@@ -516,8 +516,8 @@ public abstract class ServerPlayerInteractionManagerMixin {
             if (blocksMined > 0) {
                 int tokensEarned = 0;
                 
-                // Calculate tokens for display
-                if (AreaEnchantMod.config.enableUpgradeSystem) {
+                // Calculate tokens for display (not in simple mode)
+                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem) {
                     tokensEarned = calculateTokensFromBlocks(blockCounts);
                     
                     // Calculate token bonuses (but don't display which enchantments)
@@ -532,7 +532,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
                 
                 // Build message
                 StringBuilder message = new StringBuilder("§a[Area Mine] §f" + blocksMined + " blocks");
-                if (AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
+                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
                     message.append(" §7| §e+").append(String.format("%,d", tokensEarned)).append(" tokens");
                 }
                 

@@ -140,10 +140,10 @@ public class AreaMineHandler {
                                     try {
                                         // Get player data to determine pattern and level
                                         PlayerDataManager.PlayerData playerData = PlayerDataManager.get(serverPlayer.getUuid());
-                                        String currentPattern = AreaEnchantMod.config.miningPattern;
+                                        String currentPattern = AreaEnchantMod.config.simpleMode ? "cube" : AreaEnchantMod.config.miningPattern;
                                         int level = EnchantmentHelper.getLevel(entry, stack);
                                         
-                                        if (level > 0 && playerData.hasPattern(currentPattern)) {
+                                        if (level > 0 && (AreaEnchantMod.config.simpleMode || playerData.hasPattern(currentPattern))) {
                                             // Get tier sizes
                                             var sizeConfig = AreaEnchantMod.config.patternLevels.containsKey(currentPattern) ?
                                                 AreaEnchantMod.config.patternLevels.get(currentPattern).getOrDefault(level, new AreaEnchantMod.Size(level, level, level)) :
@@ -153,11 +153,11 @@ public class AreaMineHandler {
                                             int verticalSize = sizeConfig.vertical;
                                             int depthSize = sizeConfig.depth;
                                             
-                                            // Apply radius boost upgrade
-                                            if (playerData.hasUpgrade("radius_boost")) {
-                                                horizontalSize++;
-                                                verticalSize++;
-                                                depthSize++;
+                                            // Apply radius boost upgrade (no upgrades in simple mode)
+                                            if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+                                                horizontalSize += 2;
+                                                verticalSize += 2;
+                                                depthSize += 2;
                                             }
                                             
                                             // Get blocks to mine
@@ -346,7 +346,8 @@ public class AreaMineHandler {
             return;
         }
         
-        // If tool has a conflicting enchantment (e.g. Silk Touch), disable Area Mine entirely
+        // If tool has a conflicting enchantment (e.g. Silk Touch), disable Area Mine entirely.
+        // enchantmentConflicts must include minecraft:silk_touch so Area Mine never runs with Silk Touch.
         if (!AreaEnchantMod.config.enchantmentConflicts.isEmpty()) {
             for (String conflictId : AreaEnchantMod.config.enchantmentConflicts) {
                 var conflictEntry = enchantmentRegistry.get().getEntry(Identifier.of(conflictId));
@@ -369,9 +370,9 @@ public class AreaMineHandler {
             return;
         }
         
-        // Check pattern unlock
-        String currentPattern = AreaEnchantMod.config.miningPattern;
-        if (!playerData.hasPattern(currentPattern)) {
+        // Pattern: simple mode = cube only; otherwise require unlock
+        String currentPattern = AreaEnchantMod.config.simpleMode ? "cube" : AreaEnchantMod.config.miningPattern;
+        if (!AreaEnchantMod.config.simpleMode && !playerData.hasPattern(currentPattern)) {
             player.sendMessage(Text.literal("§c[Area Mine] You haven't unlocked the " + currentPattern + " pattern! Use /areamine patterns"), false);
             return;
         }
@@ -401,11 +402,11 @@ public class AreaMineHandler {
         int verticalSize = sizeConfig.vertical;
         int depthSize = sizeConfig.depth;
         
-        // Apply radius boost upgrade
-        if (playerData.hasUpgrade("radius_boost")) {
-            horizontalSize++;
-            verticalSize++;
-            depthSize++;
+        // Apply radius boost upgrade (no upgrades in simple mode)
+        if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+            horizontalSize += 2;
+            verticalSize += 2;
+            depthSize += 2;
         }
         
         // Get blocks to mine - ONLY blocks within the pattern, nothing else
@@ -619,7 +620,7 @@ public class AreaMineHandler {
         
         // Instant breaking
         int blocksMined = 0;
-        boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
+        boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
         
         // CRITICAL: Only break blocks that are in filteredBlocks - nothing else
         // This ensures we NEVER break blocks outside the pattern, even if they're connected ores

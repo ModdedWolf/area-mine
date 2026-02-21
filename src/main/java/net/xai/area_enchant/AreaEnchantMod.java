@@ -241,6 +241,19 @@ public class AreaEnchantMod implements ModInitializer {
                         .executes(AreaMineCommand::crouchDisable)
                     )
                 )
+                .then(CommandManager.literal("simple")
+                    .requires(source -> source.hasPermissionLevel(2))
+                    .executes(AreaMineCommand::simpleModeStatus)
+                    .then(CommandManager.literal("enable")
+                        .executes(AreaMineCommand::simpleModeEnable)
+                    )
+                    .then(CommandManager.literal("disable")
+                        .executes(AreaMineCommand::simpleModeDisable)
+                    )
+                    .then(CommandManager.literal("toggle")
+                        .executes(AreaMineCommand::simpleModeToggle)
+                    )
+                )
                 .then(CommandManager.literal("leaderboard")
                     .then(CommandManager.argument("type", com.mojang.brigadier.arguments.StringArgumentType.word())
                         .suggests((context, builder) -> {
@@ -373,6 +386,8 @@ public class AreaEnchantMod implements ModInitializer {
             return;
         }
         Path configDir = server.getRunDirectory().resolve("config").resolve("area-mine");
+        Path configPath = configDir.resolve("config.json");
+        System.out.println("[Area Mine] Config loaded from: " + configPath.toAbsolutePath());
         loadConfigAt(configDir);
     }
     
@@ -761,6 +776,7 @@ public class AreaEnchantMod implements ModInitializer {
         defaultConfig.sendTokensInChat = true; // Send token rewards as chat message
         defaultConfig.creativeModeBypass = true;
         defaultConfig.checkWorldProtection = true;
+        defaultConfig.simpleMode = false;
         
         // v4: Silk Touch incompatibility
         defaultConfig.enchantmentConflicts.add("minecraft:silk_touch");
@@ -892,6 +908,9 @@ public class AreaEnchantMod implements ModInitializer {
         public boolean creativeModeBypass = true;
         public List<String> enchantmentConflicts = new ArrayList<>();
         public boolean checkWorldProtection = true;
+        
+        /** When true: cube pattern only, no tokens, no upgrades. Durability warning unchanged. */
+        public boolean simpleMode = false;
         
         // Pattern unlock costs (cube is always free/unlocked by default)
         public Map<String, Integer> patternCosts = new HashMap<>();

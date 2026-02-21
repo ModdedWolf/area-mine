@@ -8,6 +8,6 @@
   "anvil_cost": 4,
   "slots": ["mainhand"],
   "primary_items": "#area_enchant:area_mine_applicable",
-  "exclusive_set": "#minecraft:exclusive_set/mining",
+  "exclusive_set": "#area_enchant:exclusive_set/area_mine",
   "effects": {}
 }

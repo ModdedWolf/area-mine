@@ -157,7 +157,7 @@ public class BatchedBlockBreaker {
                 durabilityMultiplier *= (1.0 - (unbreakingLevel * AreaEnchantMod.config.unbreakingDurabilityReduction));
             }
             
-            boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
+            boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
             
             // Process blocks until we hit the batch size limit or run out of blocks
             // CRITICAL: Only count successfully broken blocks towards the batch limit
@@ -418,9 +418,9 @@ public class BatchedBlockBreaker {
                 long endTime = world.getTime();
                 playerData.addMiningTime(endTime - startTime);
                 
-                // Calculate and award tokens using block values
+                // Calculate and award tokens (no tokens in simple mode)
                 int tokensEarned = 0;
-                if (AreaEnchantMod.config.enableUpgradeSystem) {
+                if (AreaEnchantMod.config.enableUpgradeSystem && !AreaEnchantMod.config.simpleMode) {
                     tokensEarned = calculateTokensFromBlocks(blockCounts);
                     
                     // Get Efficiency level
@@ -456,7 +456,7 @@ public class BatchedBlockBreaker {
                 
                 // Send feedback
                 String feedbackMessage = "§a[Area Mine] §f" + blocksMined + " blocks";
-                if (AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
+                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
                     feedbackMessage += " §7| §e+" + String.format("%,d", tokensEarned) + " tokens";
                 }
                 
