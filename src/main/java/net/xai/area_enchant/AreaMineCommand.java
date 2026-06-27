@@ -5,6 +5,8 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.block.Block;
 import net.minecraft.command.argument.EntityArgumentType;
+import net.minecraft.command.permission.LeveledPermissionPredicate;
+import net.minecraft.command.permission.PermissionLevel;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -14,6 +16,23 @@ import java.util.*;
 
 
 public class AreaMineCommand {
+
+    /** Check if command source has at least the given permission level (1.21.11 permission API). */
+    public static boolean hasPermissionLevel(ServerCommandSource source, int level) {
+        if (level <= 0) return true;
+        var pred = source.getPermissions();
+        if (pred instanceof LeveledPermissionPredicate leveled) {
+            return leveled.getLevel().isAtLeast(PermissionLevel.fromLevel(level));
+        }
+        return false;
+    }
+
+    /** Allowed if op (level 2+) or in singleplayer (integrated server). */
+    private static boolean canUseSimpleCommand(ServerCommandSource source) {
+        if (hasPermissionLevel(source, 2)) return true;
+        var server = source.getServer();
+        return server != null && !server.isDedicated();
+    }
     
     public static int reload(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
@@ -533,6 +552,10 @@ public class AreaMineCommand {
     
     public static int simpleModeStatus(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
+        if (!canUseSimpleCommand(source)) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] You do not have permission to use this command."), false);
+            return 0;
+        }
         try {
             if (AreaEnchantMod.config == null) {
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
@@ -549,6 +572,10 @@ public class AreaMineCommand {
     
     public static int simpleModeEnable(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
+        if (!canUseSimpleCommand(source)) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] You do not have permission to use this command."), false);
+            return 0;
+        }
         try {
             if (AreaEnchantMod.config == null) {
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
@@ -566,6 +593,10 @@ public class AreaMineCommand {
     
     public static int simpleModeDisable(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
+        if (!canUseSimpleCommand(source)) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] You do not have permission to use this command."), false);
+            return 0;
+        }
         try {
             if (AreaEnchantMod.config == null) {
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
@@ -583,6 +614,10 @@ public class AreaMineCommand {
     
     public static int simpleModeToggle(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
+        if (!canUseSimpleCommand(source)) {
+            source.sendFeedback(() -> Text.literal("§c[Area Mine] You do not have permission to use this command."), false);
+            return 0;
+        }
         try {
             if (AreaEnchantMod.config == null) {
                 source.sendFeedback(() -> Text.literal("§c[Area Mine] Config not loaded yet."), false);
@@ -644,6 +679,27 @@ public class AreaMineCommand {
         try {
             ServerPlayerEntity player = source.getPlayerOrThrow();
             PlayerDataManager.PlayerData data = PlayerDataManager.get(player.getUuid());
+            
+            if (AreaEnchantMod.config != null && AreaEnchantMod.config.simpleMode) {
+                // Simple mode: open upgrades UI (ore-based) via packet
+                List<net.xai.area_enchant.network.NetworkHandler.UpgradeEntry> entries = new ArrayList<>();
+                var blockRegistry = source.getWorld().getRegistryManager().getOrThrow(net.minecraft.registry.RegistryKeys.BLOCK);
+                for (String upgradeName : java.util.List.of("radius_boost", "efficiency_boost", "durability_boost", "auto_pickup")) {
+                    String oreId = AreaEnchantMod.config.simpleModeUpgradeOre != null ? AreaEnchantMod.config.simpleModeUpgradeOre.get(upgradeName) : null;
+                    int required = AreaEnchantMod.config.simpleModeUpgradeCount != null ? AreaEnchantMod.config.simpleModeUpgradeCount.getOrDefault(upgradeName, 0) : 0;
+                    if (oreId == null) continue;
+                    int current = AreaEnchantMod.getSimpleModeOreCount(data.getBlockTypeStats(), oreId);
+                    boolean owned = data.hasUpgrade(upgradeName);
+                    String displayKey = oreId;
+                    try {
+                        net.minecraft.block.Block block = blockRegistry.get(net.minecraft.util.Identifier.tryParse(oreId));
+                        if (block != null) displayKey = block.getTranslationKey();
+                    } catch (Exception ignored) { }
+                    entries.add(new net.xai.area_enchant.network.NetworkHandler.UpgradeEntry(upgradeName, oreId, displayKey, required, current, owned));
+                }
+                net.xai.area_enchant.network.NetworkHandler.sendOpenUpgradesUi(player, entries);
+                return Command.SINGLE_SUCCESS;
+            }
             
             source.sendFeedback(() -> Text.literal("§e[Area Mine] Available Upgrades (Tokens: §a" + data.getMiningTokens() + "§e):"), false);
             

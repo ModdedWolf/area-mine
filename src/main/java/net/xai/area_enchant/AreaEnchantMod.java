@@ -18,10 +18,10 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.WorldSavePath;
 import net.minecraft.village.TradeOffer;
 import net.minecraft.village.TradedItem;
 import net.minecraft.village.VillagerProfession;
-import net.xai.area_enchant.mixin.EntityAccessor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -80,8 +80,7 @@ public class AreaEnchantMod implements ModInitializer {
         registerCommands();
         registerServerEvents();
         TradeOfferHelper.registerVillagerOffers(VillagerProfession.LIBRARIAN, 5, factories -> {
-            factories.add((entity, random) -> {
-                ServerWorld world = (ServerWorld) ((EntityAccessor) entity).getWorld();
+            factories.add((world, entity, random) -> {
                 int level = random.nextInt(3) + 1; // Random level between 1 and 3
                 var enchantmentRegistry = world.getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
                 Optional<RegistryEntry.Reference<net.minecraft.enchantment.Enchantment>> optionalEntry = enchantmentRegistry.getEntry(AREA_MINE.getValue());
@@ -111,8 +110,29 @@ public class AreaEnchantMod implements ModInitializer {
     }
     
     private void registerNetworking() {
-        // Register network packets for client-server sync
         net.xai.area_enchant.network.NetworkHandler.registerPackets();
+        
+        // Simple mode: handle C2S request to unlock upgrade (ore-based)
+        net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.registerGlobalReceiver(
+            net.xai.area_enchant.network.NetworkHandler.RequestUnlockUpgradePayload.ID,
+            (payload, context) -> {
+                context.server().execute(() -> {
+                    if (config == null || !config.simpleMode) return;
+                    var player = context.player();
+                    var data = PlayerDataManager.get(player.getUuid());
+                    String upgradeName = payload.upgradeName();
+                    if (data.hasUpgrade(upgradeName)) return;
+                    String oreId = config.simpleModeUpgradeOre != null ? config.simpleModeUpgradeOre.get(upgradeName) : null;
+                    Integer required = config.simpleModeUpgradeCount != null ? config.simpleModeUpgradeCount.get(upgradeName) : null;
+                    if (oreId == null || required == null) return;
+                    int current = getSimpleModeOreCount(data.getBlockTypeStats(), oreId);
+                    if (current < required) return;
+                    data.unlockUpgrade(upgradeName);
+                    PlayerDataManager.saveToDisk(player.getUuid(), data);
+                    player.sendMessage(net.minecraft.text.Text.literal("§a[Area Mine] Unlocked: " + upgradeName), false);
+                });
+            }
+        );
         
         // Send pattern to players when they join
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -206,13 +226,13 @@ public class AreaEnchantMod implements ModInitializer {
                     && environment != CommandManager.RegistrationEnvironment.ALL) {
                 return;
             }
-            dispatcher.register(CommandManager.literal("areamine")
+            var root = CommandManager.literal("areamine")
                 .then(CommandManager.literal("reload")
-                    .requires(source -> source.hasPermissionLevel(2))
+                    .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 2))
                     .executes(AreaMineCommand::reload)
                 )
                 .then(CommandManager.literal("toggle")
-                    .requires(source -> source.hasPermissionLevel(2))
+                    .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 2))
                     .then(CommandManager.argument("player", net.minecraft.command.argument.EntityArgumentType.player())
                         .executes(AreaMineCommand::toggle)
                     )
@@ -220,11 +240,11 @@ public class AreaEnchantMod implements ModInitializer {
                 .then(CommandManager.literal("stats")
                     .executes(AreaMineCommand::detailedStats)
                     .then(CommandManager.argument("player", net.minecraft.command.argument.EntityArgumentType.player())
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 2))
                         .executes(AreaMineCommand::stats)
                     )
                     .then(CommandManager.literal("all")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 2))
                         .executes(AreaMineCommand::statsAll)
                     )
                 )
@@ -232,7 +252,7 @@ public class AreaEnchantMod implements ModInitializer {
                     .executes(AreaMineCommand::undo)
                 )
                 .then(CommandManager.literal("crouch")
-                    .requires(source -> source.hasPermissionLevel(0))
+                    .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 0))
                     .executes(AreaMineCommand::crouchToggle)
                     .then(CommandManager.literal("enable")
                         .executes(AreaMineCommand::crouchEnable)
@@ -242,7 +262,7 @@ public class AreaEnchantMod implements ModInitializer {
                     )
                 )
                 .then(CommandManager.literal("simple")
-                    .requires(source -> source.hasPermissionLevel(2))
+                    .requires(source -> net.xai.area_enchant.AreaMineCommand.hasPermissionLevel(source, 0))
                     .executes(AreaMineCommand::simpleModeStatus)
                     .then(CommandManager.literal("enable")
                         .executes(AreaMineCommand::simpleModeEnable)
@@ -265,26 +285,11 @@ public class AreaEnchantMod implements ModInitializer {
                         .executes(AreaMineCommand::leaderboard)
                     )
                 )
-                .then(CommandManager.literal("upgrades")
-                    .executes(AreaMineCommand::listUpgrades)
-                    .then(CommandManager.literal("buy")
-                        .then(CommandManager.argument("upgrade", com.mojang.brigadier.arguments.StringArgumentType.word())
-                            .suggests((context, builder) -> {
-                                // Suggest upgrade names with costs
-                                builder.suggest("radius_boost", net.minecraft.text.Text.literal("Cost: 100,000 tokens"));
-                                builder.suggest("efficiency_boost", net.minecraft.text.Text.literal("Cost: 150,000 tokens"));
-                                builder.suggest("durability_boost", net.minecraft.text.Text.literal("Cost: 200,000 tokens"));
-                                builder.suggest("auto_pickup", net.minecraft.text.Text.literal("Cost: 250,000 tokens"));
-                                return builder.buildFuture();
-                            })
-                            .executes(AreaMineCommand::upgrade)
-                        )
-                    )
-                )
-                .then(CommandManager.literal("pattern")
+                .then(buildUpgradesNode());
+            if (config == null || !config.simpleMode) {
+                root = root.then(CommandManager.literal("pattern")
                     .then(CommandManager.argument("pattern", com.mojang.brigadier.arguments.StringArgumentType.word())
                         .suggests((context, builder) -> {
-                            // Suggest all available patterns
                             builder.suggest("cube", net.minecraft.text.Text.literal("Traditional 3×3×3 area mining"));
                             builder.suggest("sphere", net.minecraft.text.Text.literal("Spherical radius mining"));
                             builder.suggest("tunnel", net.minecraft.text.Text.literal("Long corridor forward"));
@@ -301,7 +306,6 @@ public class AreaEnchantMod implements ModInitializer {
                     .then(CommandManager.literal("buy")
                         .then(CommandManager.argument("pattern", com.mojang.brigadier.arguments.StringArgumentType.word())
                             .suggests((context, builder) -> {
-                                // Suggest patterns with costs
                                 builder.suggest("sphere", net.minecraft.text.Text.literal("Cost: 1,000,000 tokens"));
                                 builder.suggest("tunnel", net.minecraft.text.Text.literal("Cost: 2,500,000 tokens"));
                                 builder.suggest("cross", net.minecraft.text.Text.literal("Cost: 5,000,000 tokens"));
@@ -312,9 +316,29 @@ public class AreaEnchantMod implements ModInitializer {
                             .executes(AreaMineCommand::buyPattern)
                         )
                     )
+                );
+            }
+            dispatcher.register(root);
+        });
+    }
+
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<net.minecraft.server.command.ServerCommandSource> buildUpgradesNode() {
+        var node = CommandManager.literal("upgrades").executes(AreaMineCommand::listUpgrades);
+        if (config != null && !config.simpleMode) {
+            node = node.then(CommandManager.literal("buy")
+                .then(CommandManager.argument("upgrade", com.mojang.brigadier.arguments.StringArgumentType.word())
+                    .suggests((context, builder) -> {
+                        builder.suggest("radius_boost", net.minecraft.text.Text.literal("Cost: 100,000 tokens"));
+                        builder.suggest("efficiency_boost", net.minecraft.text.Text.literal("Cost: 150,000 tokens"));
+                        builder.suggest("durability_boost", net.minecraft.text.Text.literal("Cost: 200,000 tokens"));
+                        builder.suggest("auto_pickup", net.minecraft.text.Text.literal("Cost: 250,000 tokens"));
+                        return builder.buildFuture();
+                    })
+                    .executes(AreaMineCommand::upgrade)
                 )
             );
-        });
+        }
+        return node;
     }
 
     /**
@@ -323,55 +347,30 @@ public class AreaEnchantMod implements ModInitializer {
      */
     private static void updateWorldDirectory(net.minecraft.server.MinecraftServer server) {
         try {
-            Path worldSaveDir;
-            if (server.isDedicated()) {
-                // Dedicated server: world is in the server directory
-                worldSaveDir = server.getRunDirectory();
-            } else {
-                // Singleplayer: worlds are in saves/ directory
-                // Get the world name from save properties
-                String worldName = server.getSaveProperties().getLevelName();
-                Path serverDir = server.getRunDirectory();
-                
-                // CRITICAL: In singleplayer, getRunDirectory() returns the .minecraft folder
-                // So we need to construct: <runDir>/saves/<worldName>
-                // NOTE: If two worlds have the same name, they will share the same directory and thus share stats
-                // This is expected behavior - use different world names to have separate stats
-                worldSaveDir = serverDir.resolve("saves").resolve(worldName);
-                
-                System.out.println("[Area Mine] [WORLD_DIR] Singleplayer detected");
-                System.out.println("[Area Mine] [WORLD_DIR] Server run directory: " + serverDir.toAbsolutePath());
-                System.out.println("[Area Mine] [WORLD_DIR] World name: " + worldName);
-                System.out.println("[Area Mine] [WORLD_DIR] Constructed world save dir: " + worldSaveDir.toAbsolutePath());
-                System.out.println("[Area Mine] [WORLD_DIR] NOTE: Worlds with the same name will share stats (they use the same directory)");
-                
-                // Verify the path exists
-                if (!java.nio.file.Files.exists(worldSaveDir)) {
-                    System.err.println("[Area Mine] [WORLD_DIR] WARNING: World save directory does not exist: " + worldSaveDir.toAbsolutePath());
-                    System.err.println("[Area Mine] [WORLD_DIR] This might indicate incorrect path construction");
-                } else {
-                    System.out.println("[Area Mine] [WORLD_DIR] World save directory exists: " + worldSaveDir.toAbsolutePath());
-                }
-            }
+            // Use the actual world save path (session root) so each world gets its own stats regardless of display name
+            Path worldSaveDir = server.getSavePath(WorldSavePath.ROOT);
             System.out.println("[Area Mine] [WORLD_DIR] Setting world save directory to: " + worldSaveDir.toAbsolutePath());
             PlayerDataManager.setWorldSaveDirectory(worldSaveDir);
         } catch (Exception e) {
             System.err.println("[Area Mine] Failed to get world save directory: " + e.getMessage());
             e.printStackTrace();
-            // Fallback to default
-            try {
-                Path serverDir = server.getRunDirectory();
-                String worldName = server.getSaveProperties().getLevelName();
-                Path fallbackPath = server.isDedicated() ? serverDir : serverDir.resolve("saves").resolve(worldName);
-                System.out.println("[Area Mine] [WORLD_DIR] Using fallback path: " + fallbackPath.toAbsolutePath());
-                PlayerDataManager.setWorldSaveDirectory(fallbackPath);
-            } catch (Exception e2) {
-                System.err.println("[Area Mine] Fallback also failed, using default: " + e2.getMessage());
-                PlayerDataManager.setWorldSaveDirectory(Paths.get("world"));
-            }
+            System.err.println("[Area Mine] Using default world path: world");
+            PlayerDataManager.setWorldSaveDirectory(Paths.get("world"));
         }
     }
     
+    /** Get total mined count for an ore, including deepslate variant (e.g. diamond_ore + deepslate_diamond_ore). */
+    public static int getSimpleModeOreCount(java.util.Map<String, Integer> blockTypeStats, String primaryOreId) {
+        if (primaryOreId == null || blockTypeStats == null) return 0;
+        int total = blockTypeStats.getOrDefault(primaryOreId, 0);
+        // e.g. minecraft:diamond_ore -> minecraft:deepslate_diamond_ore
+        if (primaryOreId.contains(":")) {
+            String deepslateId = primaryOreId.replace(":", ":deepslate_");
+            if (!deepslateId.equals(primaryOreId)) total += blockTypeStats.getOrDefault(deepslateId, 0);
+        }
+        return total;
+    }
+
     public static void reloadConfig() {
         loadConfig();
     }
@@ -434,11 +433,18 @@ public class AreaEnchantMod implements ModInitializer {
                 config = gson.fromJson(json, Config.class);
                 
                 // Config migration system
+                int fromVersion = config.configVersion;
                 if (config.configVersion < 4) {
                     System.out.println("[Area Mine] Migrating config from version " + config.configVersion + " to 4");
                     migrateConfig(config);
                     config.configVersion = 4;
-                    // Save migrated config
+                }
+                if (config.configVersion < 5) {
+                    System.out.println("[Area Mine] Migrating config from version " + config.configVersion + " to 5 (simple mode ore upgrades)");
+                    migrateConfigTo5(config);
+                    config.configVersion = 5;
+                }
+                if (fromVersion < config.configVersion) {
                     Files.writeString(configPath, gson.toJson(config));
                     System.out.println("[Area Mine] Config migration complete!");
                 }
@@ -556,6 +562,23 @@ public class AreaEnchantMod implements ModInitializer {
         
         // Update config version
         oldConfig.configVersion = 4;
+    }
+
+    private static void migrateConfigTo5(Config config) {
+        if (config.simpleModeUpgradeOre == null || config.simpleModeUpgradeOre.isEmpty()) {
+            config.simpleModeUpgradeOre = new HashMap<>();
+            config.simpleModeUpgradeOre.put("radius_boost", "minecraft:diamond_ore");
+            config.simpleModeUpgradeOre.put("efficiency_boost", "minecraft:iron_ore");
+            config.simpleModeUpgradeOre.put("durability_boost", "minecraft:gold_ore");
+            config.simpleModeUpgradeOre.put("auto_pickup", "minecraft:lapis_ore");
+        }
+        if (config.simpleModeUpgradeCount == null || config.simpleModeUpgradeCount.isEmpty()) {
+            config.simpleModeUpgradeCount = new HashMap<>();
+            config.simpleModeUpgradeCount.put("radius_boost", 100);
+            config.simpleModeUpgradeCount.put("efficiency_boost", 200);
+            config.simpleModeUpgradeCount.put("durability_boost", 150);
+            config.simpleModeUpgradeCount.put("auto_pickup", 250);
+        }
     }
 
     private static void generateConfigGuide(Path configDir) {
@@ -778,6 +801,16 @@ public class AreaEnchantMod implements ModInitializer {
         defaultConfig.checkWorldProtection = true;
         defaultConfig.simpleMode = false;
         
+        // Simple mode: ore-based upgrade requirements (scaling by ore tier)
+        defaultConfig.simpleModeUpgradeOre.put("radius_boost", "minecraft:diamond_ore");
+        defaultConfig.simpleModeUpgradeCount.put("radius_boost", 100);
+        defaultConfig.simpleModeUpgradeOre.put("efficiency_boost", "minecraft:iron_ore");
+        defaultConfig.simpleModeUpgradeCount.put("efficiency_boost", 200);
+        defaultConfig.simpleModeUpgradeOre.put("durability_boost", "minecraft:gold_ore");
+        defaultConfig.simpleModeUpgradeCount.put("durability_boost", 150);
+        defaultConfig.simpleModeUpgradeOre.put("auto_pickup", "minecraft:lapis_ore");
+        defaultConfig.simpleModeUpgradeCount.put("auto_pickup", 250);
+        
         // v4: Silk Touch incompatibility
         defaultConfig.enchantmentConflicts.add("minecraft:silk_touch");
         
@@ -911,6 +944,11 @@ public class AreaEnchantMod implements ModInitializer {
         
         /** When true: cube pattern only, no tokens, no upgrades. Durability warning unchanged. */
         public boolean simpleMode = false;
+        
+        /** Simple mode: upgrade name -> ore block ID (e.g. minecraft:diamond_ore). Progress sums this + deepslate variant. */
+        public Map<String, String> simpleModeUpgradeOre = new HashMap<>();
+        /** Simple mode: upgrade name -> required mined count. */
+        public Map<String, Integer> simpleModeUpgradeCount = new HashMap<>();
         
         // Pattern unlock costs (cube is always free/unlocked by default)
         public Map<String, Integer> patternCosts = new HashMap<>();

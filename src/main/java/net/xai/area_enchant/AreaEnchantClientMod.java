@@ -17,11 +17,14 @@ public class AreaEnchantClientMod implements ClientModInitializer {
             }
         });
         
-        // Register network receiver for pattern sync
-        // This works in both multiplayer and singleplayer (integrated server)
-        // In singleplayer, the config is shared between client and server, so pattern sync
-        // will work automatically even if networking fails
         net.xai.area_enchant.network.NetworkHandler.registerClientReceiver();
+        
+        // Simple mode: open upgrades UI when server sends upgrade list
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.registerGlobalReceiver(
+            net.xai.area_enchant.network.NetworkHandler.OpenUpgradesUiPayload.ID,
+            (payload, context) -> context.client().execute(() -> 
+                net.xai.area_enchant.client.UpgradesScreen.open(payload.entries()))
+        );
         
         System.out.println("[Area Mine] Particle preview enabled!");
         System.out.println("[Area Mine] Client-server pattern sync enabled!");

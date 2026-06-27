@@ -234,7 +234,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
         int depthSize = sizeConfig.depth;
         
         // Apply radius boost upgrade (no upgrades in simple mode)
-        if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+        if (playerData.hasUpgrade("radius_boost")) {
             horizontalSize += 2;
             verticalSize += 2;
             depthSize += 2;
@@ -366,7 +366,7 @@ public abstract class ServerPlayerInteractionManagerMixin {
         }
         
         // Check if auto-pickup is enabled (config or upgrade; no upgrade in simple mode)
-        boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
+        boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
         
         try {
             for (BlockPos otherPos : filteredBlocks) {
@@ -461,8 +461,11 @@ public abstract class ServerPlayerInteractionManagerMixin {
             // Update stats
             playerData.addBlocksMined(blocksMined);
             playerData.addDimensionStats(dimensionId, blocksMined);
-            for (Map.Entry<String, Integer> blockEntry : blockCounts.entrySet()) {
-                playerData.addBlockTypeStats(blockEntry.getKey(), blockEntry.getValue());
+            // Only count block types for simple-mode upgrades when mined with Area Mine on the tool
+            if (entry != null && EnchantmentHelper.getLevel(entry, stack) > 0) {
+                for (Map.Entry<String, Integer> blockEntry : blockCounts.entrySet()) {
+                    playerData.addBlockTypeStats(blockEntry.getKey(), blockEntry.getValue());
+                }
             }
             
             // Award mining tokens (no tokens in simple mode)
@@ -512,15 +515,11 @@ public abstract class ServerPlayerInteractionManagerMixin {
                     net.minecraft.sound.SoundCategory.PLAYERS, 0.3f, 1.5f);
             }
             
-            // Feedback messages
-            if (blocksMined > 0) {
+            // Feedback messages (not in simple mode; simple mode doesn't use tokens)
+            if (blocksMined > 0 && !AreaEnchantMod.config.simpleMode) {
                 int tokensEarned = 0;
-                
-                // Calculate tokens for display (not in simple mode)
-                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem) {
+                if (AreaEnchantMod.config.enableUpgradeSystem) {
                     tokensEarned = calculateTokensFromBlocks(blockCounts);
-                    
-                    // Calculate token bonuses (but don't display which enchantments)
                     if (efficiencyLevel > 0 && AreaEnchantMod.config.enableEnchantmentSynergies) {
                         double efficiencyBonus = efficiencyLevel * AreaEnchantMod.config.efficiencySpeedBonus;
                         tokensEarned = (int) (tokensEarned * (1.0 + efficiencyBonus));
@@ -529,19 +528,13 @@ public abstract class ServerPlayerInteractionManagerMixin {
                         tokensEarned = (int) (tokensEarned * 1.5);
                     }
                 }
-                
-                // Build message
                 StringBuilder message = new StringBuilder("§a[Area Mine] §f" + blocksMined + " blocks");
-                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
+                if (AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
                     message.append(" §7| §e+").append(String.format("%,d", tokensEarned)).append(" tokens");
                 }
-                
-                // Send as action bar (overlay above hotbar)
                 if (AreaEnchantMod.config.actionBarFeedback) {
                     player.sendMessage(Text.literal(message.toString()), true);
                 }
-                
-                // Send as chat message (always enabled for instant breaking)
                 player.sendMessage(Text.literal(message.toString()), false);
             }
             

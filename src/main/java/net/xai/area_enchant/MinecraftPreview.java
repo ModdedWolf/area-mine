@@ -61,8 +61,10 @@ public class MinecraftPreview {
             int level = EnchantmentHelper.getLevel(entry, stack);
             if (level <= 0) return;
             
-            // Check if player is crouching (required in v4)
-            if (!player.isSneaking()) return;
+            if (AreaEnchantMod.config == null) return;
+            
+            // Show preview when crouching, or when crouch requirement is disabled (so standing shows particles too)
+            if (AreaEnchantMod.config.requireCrouch && !player.isSneaking()) return;
             
             // Get the mining pattern and calculate blocks
             String pattern = AreaEnchantMod.config.miningPattern;

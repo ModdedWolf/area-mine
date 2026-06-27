@@ -154,7 +154,7 @@ public class AreaMineHandler {
                                             int depthSize = sizeConfig.depth;
                                             
                                             // Apply radius boost upgrade (no upgrades in simple mode)
-                                            if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+                                            if (playerData.hasUpgrade("radius_boost")) {
                                                 horizontalSize += 2;
                                                 verticalSize += 2;
                                                 depthSize += 2;
@@ -403,7 +403,7 @@ public class AreaMineHandler {
         int depthSize = sizeConfig.depth;
         
         // Apply radius boost upgrade (no upgrades in simple mode)
-        if (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("radius_boost")) {
+        if (playerData.hasUpgrade("radius_boost")) {
             horizontalSize += 2;
             verticalSize += 2;
             depthSize += 2;
@@ -620,7 +620,7 @@ public class AreaMineHandler {
         
         // Instant breaking
         int blocksMined = 0;
-        boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
+        boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
         
         // CRITICAL: Only break blocks that are in filteredBlocks - nothing else
         // This ensures we NEVER break blocks outside the pattern, even if they're connected ores

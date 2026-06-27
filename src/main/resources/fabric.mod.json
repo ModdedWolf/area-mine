@@ -13,8 +13,8 @@
   },
   "mixins": ["area_enchant.mixins.json"],
     "depends": {
-    "fabricloader": ">=0.17.3",
-    "minecraft": "~1.21.10",
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
     "java": ">=21"
   }
 }

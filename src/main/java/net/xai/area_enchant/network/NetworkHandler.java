@@ -9,26 +9,30 @@ import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
 import net.xai.area_enchant.AreaEnchantMod;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class NetworkHandler {
     
     public static final Identifier SYNC_PATTERN_ID = Identifier.of("area_enchant", "sync_pattern");
+    public static final Identifier OPEN_UPGRADES_UI_ID = Identifier.of("area_enchant", "open_upgrades_ui");
+    public static final Identifier REQUEST_UNLOCK_UPGRADE_ID = Identifier.of("area_enchant", "request_unlock_upgrade");
     
     public static void registerPackets() {
-        // Register the packet type
         PayloadTypeRegistry.playS2C().register(SyncPatternPayload.ID, SyncPatternPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(OpenUpgradesUiPayload.ID, OpenUpgradesUiPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(RequestUnlockUpgradePayload.ID, RequestUnlockUpgradePayload.CODEC);
     }
     
     public static void registerClientReceiver() {
-        // Client receives pattern update from server
         ClientPlayNetworking.registerGlobalReceiver(SyncPatternPayload.ID, (payload, context) -> {
             context.client().execute(() -> {
-                // Update client-side config with server's pattern
                 if (AreaEnchantMod.config != null) {
                     AreaEnchantMod.config.miningPattern = payload.pattern();
-                    System.out.println("[Area Mine Client] Pattern synced from server: " + payload.pattern());
                 }
             });
         });
+        // OpenUpgradesUiPayload receiver is registered in AreaEnchantClientMod to avoid loading client Screen on server
     }
     
     public static void sendPatternToClient(net.minecraft.server.network.ServerPlayerEntity player, String pattern) {
@@ -48,20 +52,64 @@ public class NetworkHandler {
     }
     
     public static void sendPatternToAllPlayers(net.minecraft.server.MinecraftServer server, String pattern) {
-        // Send pattern update to all online players
         for (var player : server.getPlayerManager().getPlayerList()) {
             sendPatternToClient(player, pattern);
         }
     }
     
-    /**
-     * Custom payload for syncing mining pattern
-     */
+    public static void sendOpenUpgradesUi(net.minecraft.server.network.ServerPlayerEntity player, List<UpgradeEntry> entries) {
+        if (player.networkHandler != null) {
+            try {
+                ServerPlayNetworking.send(player, new OpenUpgradesUiPayload(entries));
+            } catch (Exception ignored) { }
+        }
+    }
+    
     public record SyncPatternPayload(String pattern) implements CustomPayload {
         public static final CustomPayload.Id<SyncPatternPayload> ID = new CustomPayload.Id<>(SYNC_PATTERN_ID);
         public static final PacketCodec<PacketByteBuf, SyncPatternPayload> CODEC = PacketCodec.of(
             (value, buf) -> buf.writeString(value.pattern),
             buf -> new SyncPatternPayload(buf.readString())
+        );
+        
+        @Override
+        public Id<? extends CustomPayload> getId() {
+            return ID;
+        }
+    }
+    
+    /** One row for the simple-mode upgrades UI. */
+    public record UpgradeEntry(String upgradeName, String oreBlockId, String oreDisplayName, int requiredCount, int currentCount, boolean owned) {}
+    
+    public record OpenUpgradesUiPayload(List<UpgradeEntry> entries) implements CustomPayload {
+        public static final CustomPayload.Id<OpenUpgradesUiPayload> ID = new CustomPayload.Id<>(OPEN_UPGRADES_UI_ID);
+        public static final PacketCodec<PacketByteBuf, OpenUpgradesUiPayload> CODEC = PacketCodec.of(
+            (value, buf) -> {
+                buf.writeCollection(value.entries(), (b, e) -> {
+                    b.writeString(e.upgradeName());
+                    b.writeString(e.oreBlockId());
+                    b.writeString(e.oreDisplayName());
+                    b.writeInt(e.requiredCount());
+                    b.writeInt(e.currentCount());
+                    b.writeBoolean(e.owned());
+                });
+            },
+            buf -> new OpenUpgradesUiPayload(buf.readList(b -> new UpgradeEntry(
+                b.readString(), b.readString(), b.readString(), b.readInt(), b.readInt(), b.readBoolean()
+            )))
+        );
+        
+        @Override
+        public Id<? extends CustomPayload> getId() {
+            return ID;
+        }
+    }
+    
+    public record RequestUnlockUpgradePayload(String upgradeName) implements CustomPayload {
+        public static final CustomPayload.Id<RequestUnlockUpgradePayload> ID = new CustomPayload.Id<>(REQUEST_UNLOCK_UPGRADE_ID);
+        public static final PacketCodec<PacketByteBuf, RequestUnlockUpgradePayload> CODEC = PacketCodec.of(
+            (value, buf) -> buf.writeString(value.upgradeName()),
+            buf -> new RequestUnlockUpgradePayload(buf.readString())
         );
         
         @Override

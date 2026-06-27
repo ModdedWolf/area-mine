@@ -2,8 +2,11 @@ package net.xai.area_enchant;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
@@ -157,7 +160,7 @@ public class BatchedBlockBreaker {
                 durabilityMultiplier *= (1.0 - (unbreakingLevel * AreaEnchantMod.config.unbreakingDurabilityReduction));
             }
             
-            boolean autoPickup = AreaEnchantMod.config.autoPickup || (!AreaEnchantMod.config.simpleMode && playerData.hasUpgrade("auto_pickup"));
+            boolean autoPickup = AreaEnchantMod.config.autoPickup || playerData.hasUpgrade("auto_pickup");
             
             // Process blocks until we hit the batch size limit or run out of blocks
             // CRITICAL: Only count successfully broken blocks towards the batch limit
@@ -409,8 +412,15 @@ public class BatchedBlockBreaker {
                 
                 // Update stats
                 playerData.addBlocksMined(blocksMined);
-                for (Map.Entry<String, Integer> entry : blockCounts.entrySet()) {
-                    playerData.addBlockTypeStats(entry.getKey(), entry.getValue());
+                // Only count block types for simple-mode upgrades when mined with Area Mine on the tool
+                var enchReg = world.getRegistryManager().getOptional(RegistryKeys.ENCHANTMENT);
+                RegistryEntry<Enchantment> areaMineEntry = enchReg.isPresent()
+                    ? enchReg.get().getEntry(AreaEnchantMod.AREA_MINE.getValue()).orElse(null)
+                    : null;
+                if (areaMineEntry != null && EnchantmentHelper.getLevel(areaMineEntry, tool) > 0) {
+                    for (Map.Entry<String, Integer> entry : blockCounts.entrySet()) {
+                        playerData.addBlockTypeStats(entry.getKey(), entry.getValue());
+                    }
                 }
                 playerData.addDimensionStats(dimensionId, blocksMined);
                 
@@ -454,19 +464,17 @@ public class BatchedBlockBreaker {
                         SoundCategory.PLAYERS, 0.3f, 1.5f);
                 }
                 
-                // Send feedback
-                String feedbackMessage = "§a[Area Mine] §f" + blocksMined + " blocks";
-                if (!AreaEnchantMod.config.simpleMode && AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
-                    feedbackMessage += " §7| §e+" + String.format("%,d", tokensEarned) + " tokens";
+                // Send feedback (not in simple mode; simple mode doesn't use tokens)
+                if (!AreaEnchantMod.config.simpleMode) {
+                    String feedbackMessage = "§a[Area Mine] §f" + blocksMined + " blocks";
+                    if (AreaEnchantMod.config.enableUpgradeSystem && tokensEarned > 0) {
+                        feedbackMessage += " §7| §e+" + String.format("%,d", tokensEarned) + " tokens";
+                    }
+                    if (AreaEnchantMod.config.actionBarFeedback) {
+                        player.sendMessage(Text.literal(feedbackMessage), true);
+                    }
+                    player.sendMessage(Text.literal(feedbackMessage), false);
                 }
-                
-                // Send as action bar (overlay above hotbar)
-                if (AreaEnchantMod.config.actionBarFeedback) {
-                    player.sendMessage(Text.literal(feedbackMessage), true);
-                }
-                
-                // Send as chat message (always enabled)
-                player.sendMessage(Text.literal(feedbackMessage), false);
             }
         }
         
