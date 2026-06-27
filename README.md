@@ -1,6 +1,6 @@
 # Area Mine v4.5.3
 
-A powerful server-sided Fabric mod for Minecraft 1.21.10 that adds a multi-tier **Area Mine enchantment** system with unlockable mining patterns, token economy, and extensive progression!
+Area Mine Enchanment Book 1,2 and 3
 
 ![Minecraft Version](https://img.shields.io/badge/Minecraft-1.21.10-brightgreen)
 ![Mod Loader](https://img.shields.io/badge/Mod%20Loader-Fabric-blue)
